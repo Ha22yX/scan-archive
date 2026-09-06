@@ -1,0 +1,10 @@
+**/bin/
+**/obj/
+.vs/
+dist/
+*.user
+*.suo
+*.log
+扫描归档/
+Pending/
+self-test.txt
