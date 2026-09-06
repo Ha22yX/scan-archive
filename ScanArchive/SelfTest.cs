@@ -28,9 +28,12 @@ static class SelfTest
             if (duplicate == pdf || !File.Exists(pdf)) throw new Exception("Collision protection");
             if (!pdf.Contains(Path.Combine("2026", "09", "06", "合同"))) throw new Exception("Date archive path");
             if (Archive.Clean("CON") != "_CON" || Archive.Clean("..") == "..") throw new Exception("Unsafe path");
+            if (Scanner.NormalizeValue(150, 2, 0, 0, 1, [100, 200, 300]) != 200) throw new Exception("WIA list normalization");
+            if (Scanner.NormalizeValue(301, 1, 100, 600, 10, []) != 300) throw new Exception("WIA range normalization");
+            if (Scanner.NormalizeValue(5, 3, 0, 0, 1, [1, 2, 4]) != 5) throw new Exception("WIA flag normalization");
             if (Directory.EnumerateFiles(folder, "*.partial", SearchOption.AllDirectories).Any()) throw new Exception("Partial files remain");
             var devices = Scanner.Devices();
-            File.WriteAllText(report, $"PASS: multipage PDF, page dimensions, PNG, JPEG, date/category folders, unique filenames, unsafe path sanitization, atomic saves.\nWIA scanners: {string.Join(", ", devices.Select(d => d.Name))}\nTest artifacts: {folder}");
+            File.WriteAllText(report, $"PASS: multipage PDF, page dimensions, PNG, JPEG, date/category folders, unique filenames, unsafe path sanitization, atomic saves, WIA value normalization.\nWIA scanners: {string.Join(", ", devices.Select(d => d.Name))}\nTest artifacts: {folder}");
         }
         catch (Exception ex) { File.WriteAllText(report, "FAIL: " + ex); Environment.ExitCode = 1; }
     }

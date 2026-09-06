@@ -122,14 +122,16 @@ public sealed class MainWindow : Form
             cancellation = new CancellationTokenSource();
             Directory.CreateDirectory(temp);
             status.Text = "正在扫描，请等待设备完成…";
-            var pages = await Scanner.OnSta(() => Scanner.Capture(device.Id, resolution, useFeeder, useColor, temp, cancellation.Token,
+            var result = await Scanner.OnSta(() => Scanner.Capture(device.Id, resolution, useFeeder, useColor, temp, cancellation.Token,
                 count => BeginInvoke((Action)(() => status.Text = $"已扫描 {count} 页…"))));
+            var pages = result.Pages;
             if (pages.Count == 0) { status.Text = "已停止，未扫描页面"; return; }
-            string saved = await Task.Run(() => Archive.Save(destination, tag, name, output, pages, resolution, started));
+            string saved = await Task.Run(() => Archive.Save(destination, tag, name, output, pages, result.ActualDpi, started));
             // Delete only this operation's known temporary files after successful archival.
             foreach (string page in pages) File.Delete(page);
             Directory.Delete(temp);
-            status.Text = $"已归档 {pages.Count} 页 · {Path.GetFileName(saved)}";
+            string adjusted = result.ActualDpi == resolution ? "" : $"（设备实际使用 {result.ActualDpi} DPI）";
+            status.Text = $"已归档 {pages.Count} 页{adjusted} · {Path.GetFileName(saved)}";
             await RefreshFiles();
         }
         catch (Exception ex)
