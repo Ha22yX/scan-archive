@@ -8,8 +8,10 @@ public sealed class Settings
 {
     public string Root { get; set; } = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "扫描归档");
     public string DeviceId { get; set; } = "";
-    public string Category { get; set; } = "未分类";
     public int Dpi { get; set; } = 300;
+    public string Format { get; set; } = "PDF";
+    public bool Feeder { get; set; }
+    public bool Color { get; set; } = true;
     public static string FilePath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ScanArchive", "settings.json");
     public static Settings Load() => File.Exists(FilePath) ? JsonSerializer.Deserialize<Settings>(File.ReadAllText(FilePath)) ?? new() : new();
     public void Save()
@@ -32,12 +34,15 @@ public static class Archive
         if (new[] { "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9" }.Contains(stem)) clean = "_" + clean;
         return clean;
     }
-    public static string Save(string root, string category, string title, string format, List<string> images, int dpi, DateTime time)
+    public static string Save(string root, string format, List<string> images, int dpi, DateTime time)
     {
-        string directory = Path.Combine(Path.GetFullPath(root), time.ToString("yyyy"), time.ToString("MM"), time.ToString("dd"), Clean(category));
+        string directory = Path.Combine(Path.GetFullPath(root), time.ToString("yyyy"), time.ToString("MM"), time.ToString("dd"));
         Directory.CreateDirectory(directory);
         string suffix = format == "PDF" ? ".pdf" : format == "JPEG" ? ".jpg" : ".png";
-        string path = Path.Combine(directory, $"{time:HHmmss_fff}_{Clean(title)}_{Guid.NewGuid().ToString("N")[..8]}{suffix}");
+        string stem = time.ToString("yyyy-MM-dd_HH-mm-ss-fff");
+        string path = Path.Combine(directory, stem + suffix);
+        for (int number = 2; File.Exists(path) || File.Exists(path + ".partial"); number++)
+            path = Path.Combine(directory, $"{stem}_{number:D3}{suffix}");
         string temp = path + ".partial";
         try
         {
