@@ -66,6 +66,12 @@ public sealed class MainWindow : Form
         files.Resize += (_, _) => ResizeFileColumns();
         files.DoubleClick += (_, _) => OpenSelected();
         files.SelectedIndexChanged += (_, _) => PreviewSelected();
+        files.MouseDown += (_, e) =>
+        {
+            if (e.Button != MouseButtons.Right) return;
+            var item = files.GetItemAt(e.X, e.Y);
+            if (item != null) item.Selected = true;
+        };
         files.ContextMenuStrip = FileMenu();
         Shown += async (_, _) => { await LoadDevices(); ShowHome(); await RefreshFiles(); };
         FormClosing += (_, e) => { if (busy) { e.Cancel = true; MessageBox.Show("请等待当前页完成，程序会保存已经扫描的页面。", "正在扫描"); } };
@@ -189,6 +195,8 @@ public sealed class MainWindow : Form
         var menu = new ContextMenuStrip();
         menu.Items.Add("打开文件", null, (_, _) => OpenSelected());
         menu.Items.Add("打开归档目录", null, (_, _) => Open(settings.Root));
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add("删除文件", null, async (_, _) => await DeleteSelected());
         return menu;
     }
 
@@ -333,6 +341,31 @@ public sealed class MainWindow : Form
     }
 
     void OpenSelected() { if (files.SelectedItems.Count > 0) Open((string)files.SelectedItems[0].Tag!); }
+
+    async Task DeleteSelected()
+    {
+        if (files.SelectedItems.Count == 0) return;
+        string path = (string)files.SelectedItems[0].Tag!;
+        if (!File.Exists(path)) { await RefreshFiles(); return; }
+        var answer = MessageBox.Show($"要删除这个扫描文件吗？\n\n{Path.GetFileName(path)}\n\n文件将移入 Windows 回收站。",
+            "删除扫描文件", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2);
+        if (answer != DialogResult.Yes) return;
+        try
+        {
+            Microsoft.VisualBasic.FileIO.FileSystem.DeleteFile(path,
+                Microsoft.VisualBasic.FileIO.UIOption.OnlyErrorDialogs,
+                Microsoft.VisualBasic.FileIO.RecycleOption.SendToRecycleBin);
+            preview.Image?.Dispose();
+            preview.Image = null;
+            previewHint.Text = "扫描完成后在这里预览";
+            previewHint.Visible = true;
+            previewHint.BringToFront();
+            status.Text = $"已移入回收站 · {Path.GetFileName(path)}";
+            await RefreshFiles();
+        }
+        catch (Exception ex) { MessageBox.Show("无法删除文件：\n" + ex.Message, "删除失败", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+    }
+
     static void Open(string path)
     {
         if (!File.Exists(path) && !Directory.Exists(path)) throw new Exception("文件或目录不存在。");
