@@ -1,91 +1,145 @@
-# Scan Archive
+<h1 align="center">Scan Archive</h1>
 
-> An efficient, end-to-end Windows solution for turning paper documents into organized digital archives.
+<p align="center">Too much paper. Too much time spent searching.<br/>One click to scan, preview, and file your documents—one step toward a personal knowledge base.</p>
 
-Scan Archive is purpose-built for fast, repeatable document scanning and archiving. It brings the entire workflow into one desktop application: scanner control, flatbed or multi-page acquisition, PDF creation, instant preview, page navigation, timestamped naming, and automatic date-based filing.
+<p align="center"><strong>English</strong> · <a href="README.zh-CN.md">简体中文</a></p>
 
-Designed for high-volume daily use, Scan Archive removes manual filenames and folder decisions from each scan. Place the document, click once, and the application produces an organized digital record that is ready to find, review, and manage.
+<p align="center">Windows desktop · C# / .NET 10 · WIA scanning · Local PDF preview</p>
 
-The application interface is currently in Simplified Chinese.
+![Scan Archive workflow: paper, connected scanner, one-click capture, and timestamped archive; OCR and AI search are future plans.](docs/readme-hero.svg)
 
-## Features
+## The Application
 
-- One-click scanning from a clean home screen with a document preview and scan history.
-- Single-page flatbed scanning and multi-page automatic document feeder scanning.
-- PDF, PNG, and JPEG output in color or grayscale.
-- Local PDF rendering with previous-page and next-page navigation.
-- Automatic date-based folders and timestamp filenames with collision-safe sequence numbers.
-- Right-click deletion to the Windows Recycle Bin after confirmation.
-- Scanner, archive folder, resolution, output format, and feeder options on a separate settings page.
-- Local-only processing. Scanned documents are not uploaded to an external service.
+![Scan Archive home screen with the scan button, document preview area, and file list.](docs/screenshots/home.png)
 
-## Archive Structure
+**A focused scanning desk.** Start a scan, review documents, and browse the archive from one window. Select a PDF to render it locally; multi-page PDFs offer previous/next controls. The application interface is currently in Simplified Chinese.
 
-Files are stored under the selected archive folder using the following structure:
+## Why This Exists
+
+I built Scan Archive because I had too many paper documents. Keeping them was a chore; finding the right one later was even worse. Every bill, letter, receipt, and important record meant another decision about where to put it—and another search through a pile when I needed it again.
+
+I wanted a simple connection between my printer's scanner and my archive: put the paper in, click **Scan**, and keep a digital copy automatically. No filename to invent. No folder to choose for every document. Just a repeatable routine that makes saving paperwork easy enough to actually do.
+
+That is what Scan Archive does today. It brings scanner control, PDF creation, preview, and date-based filing into one Windows application. The bigger ambition is a personal knowledge base: a place where my documents remain available, and where I can eventually find the right file with a sentence instead of remembering its name.
+
+| The everyday problem | What Scan Archive does today |
+| --- | --- |
+| Paper keeps accumulating | Turns documents into PDF, PNG, or JPEG files through a WIA scanner |
+| Naming and filing every scan takes time | Names files from the scan start time and creates year/month/day folders |
+| Checking a scan interrupts the workflow | Provides image preview and local PDF rendering with page navigation |
+| A stack of pages needs to stay together | Combines an automatic document feeder session into one PDF |
+| A failed save could waste the scan | Retains acquired source pages in a recovery folder when scanning or archival fails |
+
+## Run It on Windows
+
+### Build and publish
+
+Use a Windows x64 computer with the **.NET 10 SDK**, Git, and a **WIA-compatible scanner driver**. This is a native desktop application; deployment means publishing and running it on Windows, not starting a web server or Docker container.
+
+```powershell
+git clone https://github.com/Ha22yX/scan-archive.git
+cd scan-archive
+dotnet publish ScanArchive -c Release -r win-x64 --self-contained true -o dist
+.\dist\ScanArchive.exe
+```
+
+The repository currently provides source code rather than a packaged release download. Publishing creates `dist/` with the .NET runtime and PDF rendering dependencies. To use the app on another Windows x64 computer, copy the **entire `dist` folder**, then run `ScanArchive.exe`; the destination computer still needs its scanner driver.
+
+### First scan
+
+1. Turn on the scanner. For a network device, make sure Windows can reach it.
+2. Open **设置 (Settings)** and choose the scanning device and archive directory.
+3. Choose PDF, PNG, or JPEG, a resolution, and color or grayscale. Enable the document feeder for a multi-page PDF.
+4. Save settings, return to **主页 (Home)**, place your document, and click **开始扫描 (Start Scan)**.
+5. Review the saved file in the list. Select it for preview or double-click to open it in your default application.
+
+Printing support alone does not mean a device is available for scanning: the app enumerates WIA scanning devices. The Brother DCP-L2640DW was used during development; its installed Windows WIA driver reports 100, 200, and 300 DPI. Other devices depend on their drivers. The scan region is currently A4.
+
+[Brother DCP-L2640DW drivers](https://support.brother.com/g/b/downloadtop.aspx?c=us&lang=en&prod=dcpl2640dw_us_as)
+
+## What Is Built Today
+
+| Capability | Behavior |
+| --- | --- |
+| One-click capture | Uses saved settings to start scanning and archive the result |
+| Flatbed and feeder | Single-page flatbed scans; feeder pages combined into PDF until the feeder is empty |
+| PDF and image output | PDFsharp creates PDFs; PNG and JPEG support single-page image output |
+| Automatic filenames | Uses the scan start timestamp down to milliseconds; adds a sequence suffix if a name already exists |
+| Preview | Images display directly; DocNET/PDFium renders selected PDF pages locally |
+| Page navigation | Previous/next controls and page count for multi-page PDF previews |
+| File management | File list, system-app opening, and a confirmed delete action using Windows shell recycle behavior |
+| Stop after current page | Finishes the active page and archives the pages already acquired |
+| Local processing | No AI API key, cloud service, or document upload is needed for the current workflow |
+
+On network shares, recycle support depends on Windows and the storage provider; do not assume a deleted file will be recoverable from the local Recycle Bin.
+
+### Archive layout
 
 ```text
-Archive folder/
+Your archive folder/
 └── 2026/
     └── 09/
         └── 07/
-            └── 2026-09-07_09-30-15-123.pdf
+            ├── 2026-09-07_09-30-15-123.pdf
+            └── 2026-09-07_09-30-15-123_002.pdf
 ```
 
-Filenames include milliseconds. If two files still receive the same timestamp, the application adds `_002`, `_003`, and subsequent sequence numbers instead of overwriting an existing document.
+There are no manual categories or document titles to enter. The `_002` suffix is only added when a filename already exists; ordinary scans use the timestamp alone.
 
-## Usage
+### Settings and recovery
 
-1. Run `dist/ScanArchive.exe`.
-2. Open **设置** (Settings) and choose the scanner and archive folder.
-3. Select the resolution, output format, color mode, and flatbed or document feeder mode.
-4. Return to **主页** (Home) and click **开始扫描** (Start Scan).
+| Location | Purpose |
+| --- | --- |
+| Your chosen archive directory | Completed PDF or image files |
+| `%LOCALAPPDATA%/ScanArchive/settings.json` | Scanner selection and saved preferences |
+| `%LOCALAPPDATA%/ScanArchive/Pending/` | Acquired source pages retained after a failed operation |
 
-During a multi-page scan, the scan button changes to **当前页完成后停止** (Stop After Current Page). Pages already scanned are still archived safely.
+The error dialog identifies the recovery directory. On success, the application writes the output to a temporary `.partial` file, moves it to the final filename, and then cleans up the acquired source pages.
 
-The Brother DCP-L2640DW detected during development supports 100, 200, and 300 DPI through its current Windows WIA driver.
+## Under the Hood
 
-## Settings and Recovery
-
-Application settings are stored in:
+| Layer | Implementation |
+| --- | --- |
+| Desktop interface | C# and Windows Forms on .NET 10 |
+| Device connection | Windows Image Acquisition (WIA) COM API on an STA worker thread |
+| Driver settings | Properties resolved by `PropertyID`, with supported lists/ranges used to normalize values |
+| PDF creation | PDFsharp 6.2.2 |
+| PDF preview | Docnet.Core 2.6.0 and its native PDFium runtime; the selected document is read into memory |
+| Image handling | System.Drawing for bitmap previews and image output |
+| Persistence | Ordinary files and JSON settings; no database or server |
 
 ```text
-%LOCALAPPDATA%/ScanArchive/settings.json
+ScanArchive/
+├── MainWindow.cs            Home, settings, scanning workflow, preview navigation
+├── Scanner.cs               WIA discovery, settings, and page acquisition
+├── Archive.cs               Date folders, output writing, and saved settings
+├── PdfPreviewDocument.cs    PDF page rendering and document lifetime
+└── SelfTest.cs              Generated-document verification
 ```
 
-If scanning or archival fails, successfully acquired source pages remain in:
-
-```text
-%LOCALAPPDATA%/ScanArchive/Pending/
-```
-
-The error message displays the exact recovery folder. Temporary pages are removed automatically after a successful archive operation.
-
-## Build
-
-Requirements:
-
-- Windows 10 or Windows 11
-- .NET 10 SDK
-- A WIA-compatible scanner driver
+### Verify a build
 
 ```powershell
-dotnet build ScanArchive -c Release
-dotnet publish ScanArchive -c Release -r win-x64 --self-contained true -o dist
+Start-Process .\dist\ScanArchive.exe -ArgumentList '--self-test' -Wait
+Get-Content .\dist\self-test.txt
 ```
 
-The published `dist` directory includes the .NET runtime and the native PDF rendering library. Copy the complete directory when distributing the application.
+The self-test generates temporary documents and checks PDF creation and page rendering, image output, naming, collision handling, and WIA enumeration. It does not start a physical scan. Real feeder behavior and device compatibility still need validation with the scanner being used.
 
-## Verification
+## Where This Could Go
 
-```powershell
-Start-Process ./dist/ScanArchive.exe -ArgumentList '--self-test' -Wait
-Get-Content ./dist/self-test.txt
-```
+The long-term goal is **a personal knowledge base built from the documents I already own**. Saving a document should be the start of making it useful, not the start of forgetting where it went.
 
-The self-test generates temporary images and verifies multi-page PDF creation and rendering, page dimensions, PNG and JPEG output, date folders, timestamp filenames, collision sequence numbers, atomic saves, and WIA device enumeration. It does not start a physical scan.
+These are future directions, not features available today:
 
-## Current Scope
+- [ ] **OCR and searchable text.** Extract text while retaining the original scan as the source of truth.
+- [ ] **A personal document index.** Add useful metadata and make content searchable across the archive.
+- [ ] **Find a document in one sentence.** Ask “Where is the warranty for my laptop?” and receive the original file, with the relevant page.
+- [ ] **AI-assisted understanding.** Explore summaries and suggested tags with explicit control over model providers and document access.
+- [ ] **Stronger preservation.** Add backup destinations, integrity checks, and restore verification to protect against more than lost paper.
 
-Scan Archive organizes documents by scan time. OCR, content-based classification, duplex scanning, and cloud backup are not currently included. Archival creates one local copy and should not be treated as a multi-copy backup strategy.
+Digitization reduces dependence on physical paper, but a single digital copy can still be lost. The current app creates an archive; it does not yet provide automated backups or a guarantee of permanent preservation. OCR, AI search, automatic classification, and duplex scanning are not implemented.
 
-Brother device support: [DCP-L2640DW downloads and drivers](https://support.brother.com/g/b/downloadtop.aspx?c=us&lang=en&prod=dcpl2640dw_us_as).
+## Related Project
+
+[Auto Email System](https://github.com/Ha22yX/auto-email-system) tackles another source of information overload: the inbox. Scan Archive starts with paper. Both projects come from the same desire to spend less time sorting information and more time using it.

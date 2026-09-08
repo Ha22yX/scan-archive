@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="650" viewBox="0 0 1200 650" role="img" aria-labelledby="title desc">
+  <title id="title">Scan Archive: paper to a personal digital archive</title>
+  <desc id="desc">Current workflow: paper, WIA scanner, Windows app, timestamped PDF or image archive, and local preview. Future plans: OCR and AI search over a personal knowledge base.</desc>
+  <defs>
+    <linearGradient id="bg" x2="1" y2="1"><stop stop-color="#f0f6ff"/><stop offset="1" stop-color="#f5faf8"/></linearGradient>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0 0L8 4L0 8" fill="none" stroke="#7390b7" stroke-width="1.5"/></marker>
+  </defs>
+  <rect width="1200" height="650" rx="28" fill="url(#bg)"/>
+  <g font-family="Segoe UI, Arial, sans-serif">
+    <text x="54" y="58" fill="#2563eb" font-size="14" font-weight="700" letter-spacing="3">SCAN ARCHIVE</text>
+    <text x="54" y="110" fill="#14243c" font-size="38" font-weight="700">Less paper to manage. More knowledge to keep.</text>
+    <text x="54" y="148" fill="#526781" font-size="19">One click connects your scanner to an organized digital archive.</text>
+    <g fill="#fff" stroke="#dce6f2" stroke-width="2">
+      <rect x="54" y="200" width="222" height="226" rx="18"/>
+      <rect x="316" y="200" width="250" height="226" rx="18"/>
+      <rect x="606" y="200" width="250" height="226" rx="18"/>
+      <rect x="896" y="200" width="250" height="226" rx="18"/>
+    </g>
+    <g fill="none" stroke="#7390b7" stroke-width="2" marker-end="url(#arrow)"><path d="M278 314h26"/><path d="M568 314h26"/><path d="M858 314h26"/></g>
+    <g fill="none" stroke="#2563eb" stroke-width="2.6" stroke-linejoin="round">
+      <path d="M91 236h40l14 15v47H91z M131 236v16h14 M101 266h30 M101 277h24"/>
+      <path d="M354 263h54v34h-54z M361 261v-23h40v23 M365 286h32v21h-32 M396 273h3"/>
+      <rect x="644" y="239" width="59" height="43" rx="4"/><path d="M673 282v15 M656 297h35 M658 258l10 9 19-17"/>
+      <path d="M934 251v-11h22l8 9h29v48h-59z M934 257h59 M948 275h31"/>
+    </g>
+    <g fill="#14243c" font-size="23" font-weight="700"><text x="78" y="342">Your paperwork</text><text x="340" y="342">Connected scanner</text><text x="630" y="342">One-click capture</text><text x="920" y="342">Digital archive</text></g>
+    <g fill="#526781" font-size="16">
+      <text x="78" y="374">Bills, letters, receipts</text><text x="78" y="399">A document worth keeping</text>
+      <text x="340" y="374">Windows WIA driver</text><text x="340" y="399">Flatbed or document feeder</text>
+      <text x="630" y="374">PDF / PNG / JPEG</text><text x="630" y="399">Preview and turn PDF pages</text>
+      <text x="920" y="374">Year / month / day folders</text><text x="920" y="399">Automatic timestamp names</text>
+    </g>
+    <rect x="54" y="464" width="1092" height="130" rx="18" fill="#e7effb"/>
+    <text x="78" y="498" fill="#315d9c" font-size="13" font-weight="700" letter-spacing="2">THE NEXT CHAPTER · PLANNED, NOT YET BUILT</text>
+    <text x="78" y="535" fill="#14243c" font-size="23" font-weight="700">OCR → Personal knowledge base → Find a file in one sentence</text>
+    <text x="78" y="566" fill="#526781" font-size="17">Keep the original. Make it searchable. Build toward lasting, verifiable preservation.</text>
+    <text x="54" y="626" fill="#657a95" font-size="14">TODAY: local capture and archiving.   TOMORROW: AI-assisted retrieval and stronger backup workflows.</text>
+  </g>
+</svg>
