@@ -6,10 +6,12 @@
     <Nullable>enable</Nullable>
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
+    <DocnetRuntime>win-x64</DocnetRuntime>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="PDFsharp" Version="6.2.2" />
+    <PackageReference Include="Docnet.Core" Version="2.6.0" />
   </ItemGroup>
 
 </Project>

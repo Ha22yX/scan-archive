@@ -20,6 +20,12 @@ static class SelfTest
                 if (document.PageCount != 2) throw new Exception("PDF page count");
                 if (Math.Abs(document.Pages[0].Width.Point - 144) > 1) throw new Exception("PDF dimensions");
             }
+            using (var rendered = new PdfPreviewDocument(pdf))
+            {
+                if (rendered.PageCount != 2) throw new Exception("PDF preview page count");
+                using var page = rendered.RenderPage(1);
+                if (page.Width < 1 || page.Height < 1) throw new Exception("PDF preview render");
+            }
             string png = Archive.Save(folder, "PNG", [image], 300, date);
             using (var bitmap = Image.FromFile(png)) if (bitmap.Width != 600) throw new Exception("PNG dimensions");
             string jpg = Archive.Save(folder, "JPEG", [image], 300, date);
@@ -34,7 +40,7 @@ static class SelfTest
             if (Scanner.NormalizeValue(5, 3, 0, 0, 1, [1, 2, 4]) != 5) throw new Exception("WIA flag normalization");
             if (Directory.EnumerateFiles(folder, "*.partial", SearchOption.AllDirectories).Any()) throw new Exception("Partial files remain");
             var devices = Scanner.Devices();
-            File.WriteAllText(report, $"PASS: multipage PDF, page dimensions, PNG, JPEG, date folders, timestamp filenames, sequential collision suffix, atomic saves, WIA value normalization.\nWIA scanners: {string.Join(", ", devices.Select(d => d.Name))}\nTest artifacts: {folder}");
+            File.WriteAllText(report, $"PASS: multipage PDF, PDF page rendering/navigation data, page dimensions, PNG, JPEG, date folders, timestamp filenames, sequential collision suffix, atomic saves, WIA value normalization.\nWIA scanners: {string.Join(", ", devices.Select(d => d.Name))}\nTest artifacts: {folder}");
         }
         catch (Exception ex) { File.WriteAllText(report, "FAIL: " + ex); Environment.ExitCode = 1; }
     }

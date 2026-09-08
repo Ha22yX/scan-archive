@@ -1,44 +1,91 @@
-# 扫描归档
+# Scan Archive
 
-中文 Windows 桌面扫描程序，使用 WIA 调用扫描仪。本机已检测到 Brother DCP-L2640DW 的 WIA 接口。
+> An efficient, end-to-end Windows solution for turning paper documents into organized digital archives.
 
-## 使用
+Scan Archive is purpose-built for fast, repeatable document scanning and archiving. It brings the entire workflow into one desktop application: scanner control, flatbed or multi-page acquisition, PDF creation, instant preview, page navigation, timestamped naming, and automatic date-based filing.
 
-运行 `dist/ScanArchive.exe`。首次使用时在“设置”中选择扫描仪和归档目录，之后在主页点击“开始扫描”。
+Designed for high-volume daily use, Scan Archive removes manual filenames and folder decisions from each scan. Place the document, click once, and the application produces an organized digital record that is ready to find, review, and manage.
 
-- 平台扫描单页；自动进纸器逐页扫描并合并 PDF，缺纸后完成。
-- 支持 PDF、PNG、JPEG；150/200/300/600 DPI（依设备驱动支持）；A4、彩色或灰度。
-- 主页只保留扫描按钮、扫描预览和文件列表；设备、目录和扫描参数位于独立设置页。
-- 归档结构：`归档目录/2026/09/06/2026-09-06_19-30-15-123.pdf`。
-- 文件名精确到毫秒；同一时间仍重名时自动追加 `_002`、`_003`，不会覆盖已有扫描件。
-- 图片可直接预览；PDF 双击后由系统阅读器打开。
-- 在文件列表中右键可删除扫描件；确认后文件移入 Windows 回收站。
-- 扫描过程中，主页按钮会变为“当前页完成后停止”，已扫描页面仍会保存。
-- 设置保存在 `%LOCALAPPDATA%/ScanArchive/settings.json`，不会进入 Git。
-- 扫描或保存失败时，已获取的原始页面保存在 `%LOCALAPPDATA%/ScanArchive/Pending/`，错误提示显示具体路径。可手动恢复；归档成功后清除本次缓存。
+The application interface is currently in Simplified Chinese.
 
-## 构建
+## Features
 
-需要 .NET 10 SDK、Windows 和扫描仪 WIA 驱动。
+- One-click scanning from a clean home screen with a document preview and scan history.
+- Single-page flatbed scanning and multi-page automatic document feeder scanning.
+- PDF, PNG, and JPEG output in color or grayscale.
+- Local PDF rendering with previous-page and next-page navigation.
+- Automatic date-based folders and timestamp filenames with collision-safe sequence numbers.
+- Right-click deletion to the Windows Recycle Bin after confirmation.
+- Scanner, archive folder, resolution, output format, and feeder options on a separate settings page.
+- Local-only processing. Scanned documents are not uploaded to an external service.
+
+## Archive Structure
+
+Files are stored under the selected archive folder using the following structure:
+
+```text
+Archive folder/
+└── 2026/
+    └── 09/
+        └── 07/
+            └── 2026-09-07_09-30-15-123.pdf
+```
+
+Filenames include milliseconds. If two files still receive the same timestamp, the application adds `_002`, `_003`, and subsequent sequence numbers instead of overwriting an existing document.
+
+## Usage
+
+1. Run `dist/ScanArchive.exe`.
+2. Open **设置** (Settings) and choose the scanner and archive folder.
+3. Select the resolution, output format, color mode, and flatbed or document feeder mode.
+4. Return to **主页** (Home) and click **开始扫描** (Start Scan).
+
+During a multi-page scan, the scan button changes to **当前页完成后停止** (Stop After Current Page). Pages already scanned are still archived safely.
+
+The Brother DCP-L2640DW detected during development supports 100, 200, and 300 DPI through its current Windows WIA driver.
+
+## Settings and Recovery
+
+Application settings are stored in:
+
+```text
+%LOCALAPPDATA%/ScanArchive/settings.json
+```
+
+If scanning or archival fails, successfully acquired source pages remain in:
+
+```text
+%LOCALAPPDATA%/ScanArchive/Pending/
+```
+
+The error message displays the exact recovery folder. Temporary pages are removed automatically after a successful archive operation.
+
+## Build
+
+Requirements:
+
+- Windows 10 or Windows 11
+- .NET 10 SDK
+- A WIA-compatible scanner driver
 
 ```powershell
 dotnet build ScanArchive -c Release
 dotnet publish ScanArchive -c Release -r win-x64 --self-contained true -o dist
 ```
 
-发布目录内置 .NET 运行时。分发时复制整个 `dist` 目录。
+The published `dist` directory includes the .NET runtime and the native PDF rendering library. Copy the complete directory when distributing the application.
 
-## 验证
+## Verification
 
 ```powershell
 Start-Process ./dist/ScanArchive.exe -ArgumentList '--self-test' -Wait
 Get-Content ./dist/self-test.txt
 ```
 
-自检生成测试图片，验证多页 PDF、尺寸、PNG/JPEG、日期目录、时间文件名、顺序编号和临时保存，并枚举真实 WIA 设备；不会触发真实扫描。
+The self-test generates temporary images and verifies multi-page PDF creation and rendering, page dimensions, PNG and JPEG output, date folders, timestamp filenames, collision sequence numbers, atomic saves, and WIA device enumeration. It does not start a physical scan.
 
-## 当前范围
+## Current Scope
 
-当前版本按扫描时间归档，没有文件分类、OCR 内容识别、双面扫描或云备份。归档是保存一份文件，不等于多副本备份。
+Scan Archive organizes documents by scan time. OCR, content-based classification, duplex scanning, and cloud backup are not currently included. Archival creates one local copy and should not be treated as a multi-copy backup strategy.
 
-设备资料：[Brother DCP-L2640DW 驱动](https://support.brother.com/g/b/downloadtop.aspx?c=us&lang=en&prod=dcpl2640dw_us_as)。
+Brother device support: [DCP-L2640DW downloads and drivers](https://support.brother.com/g/b/downloadtop.aspx?c=us&lang=en&prod=dcpl2640dw_us_as).

@@ -17,6 +17,10 @@ public sealed class MainWindow : Form
     readonly Label previewHint = new() { Text = "扫描完成后在这里预览", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter, ForeColor = Color.FromArgb(100, 116, 139) };
     readonly Label listTitle = new() { Text = "扫描文件", Dock = DockStyle.Top, Height = 44, Font = new Font("Microsoft YaHei UI", 13, FontStyle.Bold), TextAlign = ContentAlignment.MiddleLeft };
     readonly PictureBox preview = new() { Dock = DockStyle.Fill, SizeMode = PictureBoxSizeMode.Zoom, BackColor = Surface };
+    readonly FlowLayoutPanel pdfNavigation = new() { Dock = DockStyle.Bottom, Height = 48, FlowDirection = FlowDirection.LeftToRight, WrapContents = false, Visible = false, Padding = new Padding(8, 7, 0, 0), BackColor = Color.White };
+    readonly Button previousPage = new() { Text = "上一页", Width = 82, Height = 32, FlatStyle = FlatStyle.Flat };
+    readonly Button nextPage = new() { Text = "下一页", Width = 82, Height = 32, FlatStyle = FlatStyle.Flat };
+    readonly Label pageNumber = new() { Text = "1 / 1", Width = 86, Height = 32, TextAlign = ContentAlignment.MiddleCenter };
     readonly ListView files = new() { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, MultiSelect = false, BorderStyle = BorderStyle.None };
     readonly Panel content = new() { Dock = DockStyle.Fill };
     readonly Button homeNav = NavButton("主页");
@@ -25,6 +29,8 @@ public sealed class MainWindow : Form
     Control? settingsPage;
     Settings settings = new();
     CancellationTokenSource? cancellation;
+    PdfPreviewDocument? pdfDocument;
+    int pdfPageIndex;
     bool busy;
     int refreshVersion;
 
@@ -73,8 +79,12 @@ public sealed class MainWindow : Form
             if (item != null) item.Selected = true;
         };
         files.ContextMenuStrip = FileMenu();
+        pdfNavigation.Controls.AddRange([previousPage, pageNumber, nextPage]);
+        previousPage.Click += (_, _) => ChangePdfPage(-1);
+        nextPage.Click += (_, _) => ChangePdfPage(1);
         Shown += async (_, _) => { await LoadDevices(); ShowHome(); await RefreshFiles(); };
         FormClosing += (_, e) => { if (busy) { e.Cancel = true; MessageBox.Show("请等待当前页完成，程序会保存已经扫描的页面。", "正在扫描"); } };
+        FormClosed += (_, _) => ClosePdf();
         ShowHome();
     }
 
@@ -112,8 +122,11 @@ public sealed class MainWindow : Form
     Control PreviewArea()
     {
         var host = new Panel { Dock = DockStyle.Fill, BackColor = Surface };
-        host.Controls.Add(preview);
-        host.Controls.Add(previewHint);
+        var canvas = new Panel { Dock = DockStyle.Fill, BackColor = Surface };
+        canvas.Controls.Add(preview);
+        canvas.Controls.Add(previewHint);
+        host.Controls.Add(canvas);
+        host.Controls.Add(pdfNavigation);
         previewHint.BringToFront();
         return host;
     }
@@ -288,6 +301,7 @@ public sealed class MainWindow : Form
 
     void ShowPreview(Image image, string hint)
     {
+        ClosePdf();
         preview.Image?.Dispose();
         preview.Image = image;
         previewHint.Text = hint;
@@ -330,14 +344,61 @@ public sealed class MainWindow : Form
         string path = (string)files.SelectedItems[0].Tag!;
         if (Path.GetExtension(path).Equals(".pdf", StringComparison.OrdinalIgnoreCase))
         {
-            preview.Image?.Dispose();
-            preview.Image = null;
-            previewHint.Text = "PDF 文件\n双击文件打开查看";
-            previewHint.Visible = true;
-            previewHint.BringToFront();
+            OpenPdfPreview(path);
             return;
         }
         try { ShowPreview(CreatePreview(path), Path.GetFileName(path)); } catch { }
+    }
+
+    void OpenPdfPreview(string path)
+    {
+        ClosePdf();
+        preview.Image?.Dispose();
+        preview.Image = null;
+        try
+        {
+            pdfDocument = new PdfPreviewDocument(path);
+            pdfPageIndex = 0;
+            RenderPdfPage();
+        }
+        catch (Exception ex)
+        {
+            ClosePdf();
+            previewHint.Text = "无法预览这个 PDF\n" + ex.Message;
+            previewHint.Visible = true;
+            previewHint.BringToFront();
+        }
+    }
+
+    void ChangePdfPage(int amount)
+    {
+        if (pdfDocument == null) return;
+        int target = Math.Clamp(pdfPageIndex + amount, 0, pdfDocument.PageCount - 1);
+        if (target == pdfPageIndex) return;
+        pdfPageIndex = target;
+        try { RenderPdfPage(); }
+        catch (Exception ex) { MessageBox.Show("无法渲染这一页：\n" + ex.Message, "PDF 预览"); }
+    }
+
+    void RenderPdfPage()
+    {
+        if (pdfDocument == null) return;
+        var image = pdfDocument.RenderPage(pdfPageIndex);
+        preview.Image?.Dispose();
+        preview.Image = image;
+        previewHint.Visible = false;
+        pageNumber.Text = $"{pdfPageIndex + 1} / {pdfDocument.PageCount}";
+        previousPage.Enabled = pdfPageIndex > 0;
+        nextPage.Enabled = pdfPageIndex + 1 < pdfDocument.PageCount;
+        pdfNavigation.Visible = pdfDocument.PageCount > 1;
+    }
+
+    void ClosePdf()
+    {
+        pdfDocument?.Dispose();
+        pdfDocument = null;
+        pdfPageIndex = 0;
+        pdfNavigation.Visible = false;
     }
 
     void OpenSelected() { if (files.SelectedItems.Count > 0) Open((string)files.SelectedItems[0].Tag!); }
@@ -352,6 +413,7 @@ public sealed class MainWindow : Form
         if (answer != DialogResult.Yes) return;
         try
         {
+            ClosePdf();
             Microsoft.VisualBasic.FileIO.FileSystem.DeleteFile(path,
                 Microsoft.VisualBasic.FileIO.UIOption.OnlyErrorDialogs,
                 Microsoft.VisualBasic.FileIO.RecycleOption.SendToRecycleBin);
