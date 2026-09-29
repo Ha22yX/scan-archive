@@ -11,6 +11,37 @@ static class SelfTest
         string report = Path.Combine(AppContext.BaseDirectory, "self-test.txt");
         try
         {
+            int attempts = 0, waits = 0;
+            int transferred = Scanner.TransferWithRetry(() =>
+            {
+                if (++attempts < 3) throw new System.Runtime.InteropServices.COMException("Busy", unchecked((int)0x80210006));
+                return 42;
+            }, CancellationToken.None, () => waits++);
+            if (transferred != 42 || attempts != 3 || waits != 2) throw new Exception("Busy retry loses successful page");
+            attempts = 0;
+            try
+            {
+                Scanner.TransferWithRetry<int>(() => { attempts++; throw new System.Runtime.InteropServices.COMException("Busy", unchecked((int)0x80210006)); }, CancellationToken.None, () => { });
+                throw new Exception("Busy retry should fail after bounded attempts");
+            }
+            catch (System.Runtime.InteropServices.COMException) { if (attempts != 11) throw new Exception("Unbounded busy retry"); }
+            using (var stop = new CancellationTokenSource())
+            {
+                attempts = 0;
+                try
+                {
+                    Scanner.TransferWithRetry<int>(() => { attempts++; throw new System.Runtime.InteropServices.COMException("Busy", unchecked((int)0x80210006)); }, stop.Token, () => stop.Cancel());
+                    throw new Exception("Busy retry ignored stop request");
+                }
+                catch (OperationCanceledException) { if (attempts != 1) throw new Exception("Transfer continued after stop request"); }
+            }
+            attempts = 0;
+            try
+            {
+                Scanner.TransferWithRetry<int>(() => { attempts++; throw new System.Runtime.InteropServices.COMException("Paper jam", unchecked((int)0x80210002)); }, CancellationToken.None, () => { });
+                throw new Exception("Paper jam should fail immediately");
+            }
+            catch (System.Runtime.InteropServices.COMException) { if (attempts != 1) throw new Exception("Unsafe retry of paper jam"); }
             using (var body = new Panel { Dock = DockStyle.Fill })
             using (var card = MainWindow.Card("Preview", body))
             {

@@ -272,11 +272,17 @@ public sealed class MainWindow : Form
             if (result.Pages.Count == 0) { status.Text = "已停止，没有扫描文件"; return; }
             ShowPreview(CreatePreview(result.Pages[0]), $"本次扫描 · {result.Pages.Count} 页");
             string saved = await Task.Run(() => Archive.Save(settings.Root, settings.Format, result.Pages, result.ActualDpi, started));
-            foreach (string page in result.Pages) File.Delete(page);
-            Directory.Delete(temp);
+            if (result.Warning == null)
+            {
+                foreach (string page in result.Pages) File.Delete(page);
+                Directory.Delete(temp);
+            }
             string adjusted = result.ActualDpi == settings.Dpi ? "" : $" · {result.ActualDpi} DPI";
-            status.Text = $"扫描完成 · {result.Pages.Count} 页{adjusted} · {Path.GetFileName(saved)}";
+            status.Text = $"{(result.Warning == null ? "扫描完成" : "扫描中断，已部分保存")} · {result.Pages.Count} 页{adjusted} · {Path.GetFileName(saved)}";
             await RefreshFiles();
+            if (result.Warning != null)
+                MessageBox.Show(result.Warning + "\n\n归档文件：\n" + saved + "\n\n原始页面保留在：\n" + temp,
+                    "已保存扫描到的页面", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
         catch (Exception ex)
         {

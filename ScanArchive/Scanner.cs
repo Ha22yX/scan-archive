@@ -7,7 +7,7 @@ public sealed record ScannerDevice(string Id, string Name)
     public override string ToString() => Name;
 }
 
-public sealed record ScanResult(List<string> Pages, int ActualDpi);
+public sealed record ScanResult(List<string> Pages, int ActualDpi, string? Warning = null);
 
 public static class Scanner
 {
@@ -95,6 +95,27 @@ public static class Scanner
         }
         finally { Release(found); }
     }
+    static int? ReadProperty(dynamic owner, int propertyId)
+    {
+        foreach (dynamic property in owner.Properties)
+        {
+            try { if ((int)property.PropertyID == propertyId) return (int)property.Value; }
+            finally { Release(property); }
+        }
+        return null;
+    }
+    internal static T TransferWithRetry<T>(Func<T> transfer, CancellationToken cancellation, Action wait)
+    {
+        for (int retry = 0; ; retry++)
+        {
+            cancellation.ThrowIfCancellationRequested();
+            try { return transfer(); }
+            catch (COMException ex) when ((uint)ex.HResult == 0x80210006 && retry < 10)
+            {
+                wait();
+            }
+        }
+    }
     public static ScanResult Capture(string id, int dpi, bool feeder, bool color, string folder, CancellationToken cancellation, Action<int> progress)
     {
         dynamic manager = Create();
@@ -112,7 +133,9 @@ public static class Scanner
             }
             if (device == null) throw new Exception("找不到所选扫描仪，请打开设备电源并刷新设备。 ");
             phase = feeder ? "选择自动进纸器" : "选择玻璃扫描平台";
-            SetProperty(device, 3088, feeder ? 1 : 2);
+            int selectedSource = SetProperty(device, 3088, feeder ? 1 : 2);
+            if ((selectedSource & (feeder ? 1 : 2)) == 0)
+                throw new Exception("驱动未能切换到所选扫描来源，请检查扫描方式设置。");
             item = device.Items[1];
             phase = "设置颜色模式";
             SetProperty(item, 6146, color ? 1 : 2);
@@ -132,8 +155,24 @@ public static class Scanner
                 dynamic? image = null;
                 try
                 {
+                    if (feeder && pages.Count > 0)
+                    {
+                        // Let the feeder settle before checking whether another sheet is ready.
+                        if (cancellation.WaitHandle.WaitOne(500)) break;
+                        int? state = null;
+                        try { state = ReadProperty(device, 3087); }
+                        catch (COMException) { /* Transfer reports errors if status is unavailable. */ }
+                        if (state.HasValue)
+                        {
+                            // Jam, open covers, multiple feed, device attention or lamp error.
+                            if ((state.Value & (8 | 16 | 32 | 512 | 1024 | 2048)) != 0)
+                                throw new Exception($"进纸器需要检查（设备状态 0x{state.Value:X}），请检查卡纸和盖板。");
+                            if ((state.Value & 1) == 0) break; // FEED_READY
+                        }
+                    }
                     phase = $"扫描第 {pages.Count + 1} 页";
-                    image = item.Transfer("{B96B3CAB-0728-11D3-9D7B-0000F81EF32E}");
+                    image = TransferWithRetry<object>(() => (object)item.Transfer("{B96B3CAB-0728-11D3-9D7B-0000F81EF32E}"),
+                        cancellation, () => cancellation.WaitHandle.WaitOne(1000));
                     string path = Path.Combine(folder, $"page-{pages.Count + 1:D4}.bmp");
                     image.SaveFile(path);
                     pages.Add(path);
@@ -145,8 +184,14 @@ public static class Scanner
             }
             return new ScanResult(pages, actualDpi);
         }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+            return new ScanResult(pages, actualDpi);
+        }
         catch (Exception ex)
         {
+            if (pages.Count > 0)
+                return new ScanResult(pages, actualDpi, $"{phase}未完成：{ex.Message}\n错误码：0x{ex.HResult:X8}\n已保存前 {pages.Count} 页，请检查剩余纸张后继续扫描。");
             throw new Exception($"扫描失败（{phase}）：{ex.Message}\n错误码：0x{ex.HResult:X8}\n请检查设备是否在线、进纸器是否有纸，或设备是否被其他扫描软件占用。已扫描的临时文件保留在：{folder}", ex);
         }
         finally { Release(item); Release(device); Release(manager); }
