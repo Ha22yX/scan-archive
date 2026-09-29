@@ -55,7 +55,17 @@ public static class Scanner
         }
         return requested;
     }
-    static int SetProperty(dynamic owner, int propertyId, int requested)
+    public static int MaximumValue(int subType, int min, int max, int step, IEnumerable<int> values)
+    {
+        if (subType == 1 && max >= min)
+        {
+            long safeStep = Math.Max(1, step);
+            return checked((int)(min + ((long)max - min) / safeStep * safeStep));
+        }
+        if (subType == 2 && values.Any()) return values.Max();
+        throw new InvalidOperationException("扫描驱动未报告可用的最大扫描范围。");
+    }
+    static int SetProperty(dynamic owner, int propertyId, int requested, bool useMaximum = false)
     {
         dynamic? found = null;
         try
@@ -77,7 +87,9 @@ public static class Scanner
                 try { for (int i = 1; i <= (int)vector.Count; i++) values.Add((int)vector[i]); }
                 finally { Release(vector); }
             }
-            int actual = NormalizeValue(requested, subType, min, max, step, values);
+            int actual = useMaximum
+                ? MaximumValue(subType, min, max, step, values)
+                : NormalizeValue(requested, subType, min, max, step, values);
             found.Value = actual;
             return (int)found.Value;
         }
@@ -107,12 +119,13 @@ public static class Scanner
             phase = "设置扫描分辨率";
             actualDpi = SetProperty(item, 6147, dpi);
             SetProperty(item, 6148, actualDpi);
-            // Set an A4 scan region, bounded by the driver's reported maximum.
-            phase = "设置 A4 扫描范围";
+            // Read extents after selecting the source, resolution and zero origin:
+            // WIA updates the supported pixel ranges when these settings change.
+            phase = "设置设备最大扫描范围";
             SetProperty(item, 6149, 0);
             SetProperty(item, 6150, 0);
-            SetProperty(item, 6151, (int)Math.Round(210.0 / 25.4 * actualDpi));
-            SetProperty(item, 6152, (int)Math.Round(297.0 / 25.4 * actualDpi));
+            SetProperty(item, 6151, 0, useMaximum: true);
+            SetProperty(item, 6152, 0, useMaximum: true);
             while (true)
             {
                 if (cancellation.IsCancellationRequested) break;

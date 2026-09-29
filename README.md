@@ -53,7 +53,7 @@ The repository currently provides source code rather than a packaged release dow
 4. Save settings, return to **主页 (Home)**, place your document, and click **开始扫描 (Start Scan)**.
 5. Review the saved file in the list. Select it for preview or double-click to open it in your default application.
 
-Printing support alone does not mean a device is available for scanning: the app enumerates WIA scanning devices. The Brother DCP-L2640DW was used during development; its installed Windows WIA driver reports 100, 200, and 300 DPI. Other devices depend on their drivers. The scan region is currently A4.
+Printing support alone does not mean a device is available for scanning: the app enumerates WIA scanning devices. The Brother DCP-L2640DW was used during development; its installed Windows WIA driver reports 100, 200, and 300 DPI. Other devices depend on their drivers. Each scan uses the maximum width and height reported by the driver for the selected source and resolution. Flatbed and feeder limits may differ; this does not detect paper edges or automatically crop blank margins.
 
 [Brother DCP-L2640DW drivers](https://support.brother.com/g/b/downloadtop.aspx?c=us&lang=en&prod=dcpl2640dw_us_as)
 

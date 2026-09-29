@@ -53,7 +53,7 @@ dotnet publish ScanArchive -c Release -r win-x64 --self-contained true -o dist
 4. 保存设置，回到「主页」，放好纸张后点击「开始扫描」。
 5. 在列表中查看结果。单击预览，双击使用系统默认程序打开。
 
-能够打印不等于能够扫描，程序列出的是 WIA 扫描设备。开发时使用 Brother DCP-L2640DW，其当前 Windows WIA 驱动报告支持 100、200、300 DPI。其他设备取决于驱动，当前扫描范围为 A4。
+能够打印不等于能够扫描，程序列出的是 WIA 扫描设备。开发时使用 Brother DCP-L2640DW，其当前 Windows WIA 驱动报告支持 100、200、300 DPI。其他设备取决于驱动。每次扫描会使用驱动在当前纸张来源和分辨率下报告的最大宽度、高度；玻璃平台和进纸器的上限可能不同。此功能不会识别纸张边缘或自动裁去空白。
 
 [Brother DCP-L2640DW 驱动下载](https://support.brother.com/g/b/downloadtop.aspx?c=us&lang=en&prod=dcpl2640dw_us_as)
 

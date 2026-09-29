@@ -146,7 +146,7 @@ public sealed class MainWindow : Form
             for (int i = 0; i < 6; i++) form.RowStyles.Add(new RowStyle(SizeType.Absolute, i == 5 ? 64 : 50));
             AddSetting(form, 0, "扫描设备", devices, SecondaryButton("刷新设备", async () => await LoadDevices()));
             AddSetting(form, 1, "归档目录", root, SecondaryButton("选择目录", ChooseRoot));
-            AddSetting(form, 2, "分辨率", dpi, new Label { Text = "DPI · A4", AutoSize = true, Padding = new Padding(8, 7, 0, 0), ForeColor = Color.FromArgb(100, 116, 139) });
+            AddSetting(form, 2, "分辨率", dpi, new Label { Text = "DPI · 设备最大扫描范围", AutoSize = true, Padding = new Padding(8, 7, 0, 0), ForeColor = Color.FromArgb(100, 116, 139) });
             AddSetting(form, 3, "文件格式", format, new Label());
             var options = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight };
             options.Controls.AddRange([color, feeder]);

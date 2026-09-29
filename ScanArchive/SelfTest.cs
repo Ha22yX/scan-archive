@@ -39,6 +39,13 @@ static class SelfTest
             if (Scanner.NormalizeValue(301, 1, 100, 600, 10, []) != 300) throw new Exception("WIA range normalization");
             if (Scanner.NormalizeValue(5, 3, 0, 0, 1, [1, 2, 4]) != 5) throw new Exception("WIA flag normalization");
             if (Directory.EnumerateFiles(folder, "*.partial", SearchOption.AllDirectories).Any()) throw new Exception("Partial files remain");
+            if (Scanner.MaximumValue(1, 1, 2550, 1, []) != 2550) throw new Exception("WIA maximum extent");
+            if (Scanner.MaximumValue(1, 1, 100, 8, []) != 97) throw new Exception("WIA maximum step alignment");
+            if (Scanner.MaximumValue(2, 0, 0, 1, [3508, 4200, 3300]) != 4200) throw new Exception("WIA maximum listed extent");
+            bool unsupportedExtentRejected = false;
+            try { Scanner.MaximumValue(0, 0, 0, 1, []); }
+            catch (InvalidOperationException) { unsupportedExtentRejected = true; }
+            if (!unsupportedExtentRejected) throw new Exception("WIA missing extent bounds");
             var devices = Scanner.Devices();
             File.WriteAllText(report, $"PASS: multipage PDF, PDF page rendering/navigation data, page dimensions, PNG, JPEG, date folders, timestamp filenames, sequential collision suffix, atomic saves, WIA value normalization.\nWIA scanners: {string.Join(", ", devices.Select(d => d.Name))}\nTest artifacts: {folder}");
         }
