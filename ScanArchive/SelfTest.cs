@@ -11,6 +11,18 @@ static class SelfTest
         string report = Path.Combine(AppContext.BaseDirectory, "self-test.txt");
         try
         {
+            using (var body = new Panel { Dock = DockStyle.Fill })
+            using (var card = MainWindow.Card("Preview", body))
+            {
+                foreach (var size in new[] { new Size(800, 1000), new Size(480, 400) })
+                {
+                    card.Size = size;
+                    card.PerformLayout();
+                    var title = card.Controls.OfType<Label>().Single();
+                    if (body.Top < title.Bottom || body.Bottom > card.ClientSize.Height - card.Padding.Bottom)
+                        throw new Exception("Preview title overlaps or clips the document area");
+                }
+            }
             string image = Path.Combine(folder, "input.bmp");
             using (var bitmap = new Bitmap(600, 900)) { using var g = Graphics.FromImage(bitmap); g.Clear(Color.White); g.DrawString("Archive test", SystemFonts.DefaultFont, Brushes.Black, 30, 30); bitmap.Save(image); }
             var date = new DateTime(2026, 9, 6, 12, 30, 0);

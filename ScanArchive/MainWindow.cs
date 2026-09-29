@@ -162,7 +162,7 @@ public sealed class MainWindow : Form
         SetActiveNav(settingsNav);
     }
 
-    static Panel Card(string title, Control body)
+    internal static Panel Card(string title, Control body)
     {
         var panel = new Panel { Dock = DockStyle.Fill, BackColor = Surface, Padding = new Padding(18) };
         panel.Controls.Add(body);
@@ -170,7 +170,9 @@ public sealed class MainWindow : Form
         {
             var label = new Label { Text = title, Dock = DockStyle.Top, Height = 38, Font = new Font("Microsoft YaHei UI", 13, FontStyle.Bold) };
             panel.Controls.Add(label);
-            label.BringToFront();
+            // WinForms docks in reverse z-order. Reserve the title's height
+            // before laying out the fill control so it cannot cover the page.
+            body.BringToFront();
         }
         return panel;
     }
