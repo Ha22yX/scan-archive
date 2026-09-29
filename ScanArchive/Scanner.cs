@@ -118,6 +118,7 @@ public static class Scanner
     }
     public static ScanResult Capture(string id, int dpi, bool feeder, bool color, string folder, CancellationToken cancellation, Action<int> progress)
     {
+        if (feeder) return FeederScanner.Capture(id, dpi, color, folder, cancellation, progress);
         dynamic manager = Create();
         dynamic? device = null;
         dynamic? item = null;

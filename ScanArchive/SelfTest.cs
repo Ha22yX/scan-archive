@@ -56,6 +56,28 @@ static class SelfTest
             }
             string image = Path.Combine(folder, "input.bmp");
             using (var bitmap = new Bitmap(600, 900)) { using var g = Graphics.FromImage(bitmap); g.Clear(Color.White); g.DrawString("Archive test", SystemFonts.DefaultFont, Brushes.Black, 30, 30); bitmap.Save(image); }
+            using (var first = File.OpenRead(image))
+            {
+                string acquired = FeederScanner.SavePage(first, folder, 1);
+                using var check = Image.FromFile(acquired);
+                if (check.Width != 600 || check.Height != 900) throw new Exception("Feeder stream dimensions");
+            }
+            using (var second = new MemoryStream())
+            {
+                using (var bitmap = new Bitmap(320, 480))
+                {
+                    using var g = Graphics.FromImage(bitmap);
+                    g.Clear(Color.Blue);
+                    bitmap.Save(second, System.Drawing.Imaging.ImageFormat.Bmp);
+                }
+                string acquired = FeederScanner.SavePage(second, folder, 2);
+                using var check = new Bitmap(acquired);
+                if (check.Width != 320 || check.GetPixel(10, 10).B != 255) throw new Exception("Feeder page stream mixed or cropped");
+            }
+            bool invalidPageRejected = false;
+            try { using var broken = new MemoryStream([1, 2, 3]); FeederScanner.SavePage(broken, folder, 3); }
+            catch (ArgumentException) { invalidPageRejected = true; }
+            if (!invalidPageRejected || File.Exists(Path.Combine(folder, "page-0003.bmp"))) throw new Exception("Invalid feeder page accepted");
             var date = new DateTime(2026, 9, 6, 12, 30, 0);
             string pdf = Archive.Save(folder, "PDF", [image, image], 300, date);
             using (var document = PdfReader.Open(pdf, PdfDocumentOpenMode.Import))

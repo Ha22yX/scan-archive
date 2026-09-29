@@ -62,7 +62,7 @@ dotnet publish ScanArchive -c Release -r win-x64 --self-contained true -o dist
 | 功能 | 具体行为 |
 | --- | --- |
 | 一键扫描 | 使用已保存的设置开始扫描并归档 |
-| 平台与进纸器 | 平台扫描单页；进纸器逐页采集，缺纸后完成 PDF |
+| 平台与进纸器 | 平台扫描单页；WIA 2.0 进纸器在同一个传输会话中接收所有页面，合并为 PDF |
 | PDF 与图片 | PDFsharp 生成 PDF；PNG/JPEG 用于单页输出 |
 | 自动命名 | 使用扫描开始时间，精确到毫秒；已有同名文件时增加序号 |
 | 文档预览 | 图片直接显示；DocNET/PDFium 本地渲染 PDF |
@@ -101,7 +101,7 @@ dotnet publish ScanArchive -c Release -r win-x64 --self-contained true -o dist
 | 层级 | 技术 |
 | --- | --- |
 | 桌面界面 | C#、Windows Forms、.NET 10 |
-| 设备连接 | Windows Image Acquisition（WIA）COM 接口，使用 STA 工作线程 |
+| 设备连接 | Windows Image Acquisition（WIA），使用 STA 工作线程；NAPS2.Wia 2.0.3 通过 WIA 2.0 回调接收进纸器页面 |
 | 驱动参数 | 按 `PropertyID` 查找属性，按驱动报告的列表或范围调整数值 |
 | PDF 生成 | PDFsharp 6.2.2 |
 | PDF 预览 | Docnet.Core 2.6.0 和原生 PDFium，选中文档读入内存 |

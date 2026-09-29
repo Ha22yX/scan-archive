@@ -62,7 +62,7 @@ Printing support alone does not mean a device is available for scanning: the app
 | Capability | Behavior |
 | --- | --- |
 | One-click capture | Uses saved settings to start scanning and archive the result |
-| Flatbed and feeder | Single-page flatbed scans; feeder pages combined into PDF until the feeder is empty |
+| Flatbed and feeder | Single-page flatbed scans; WIA 2.0 feeder scans receive all pages in one transfer session and combine them into PDF |
 | PDF and image output | PDFsharp creates PDFs; PNG and JPEG support single-page image output |
 | Automatic filenames | Uses the scan start timestamp down to milliseconds; adds a sequence suffix if a name already exists |
 | Preview | Images display directly; DocNET/PDFium renders selected PDF pages locally |
@@ -101,7 +101,7 @@ The error dialog identifies the recovery directory. On success, the application 
 | Layer | Implementation |
 | --- | --- |
 | Desktop interface | C# and Windows Forms on .NET 10 |
-| Device connection | Windows Image Acquisition (WIA) COM API on an STA worker thread |
+| Device connection | Windows Image Acquisition (WIA) on an STA worker thread; NAPS2.Wia 2.0.3 receives feeder pages through WIA 2.0 callbacks |
 | Driver settings | Properties resolved by `PropertyID`, with supported lists/ranges used to normalize values |
 | PDF creation | PDFsharp 6.2.2 |
 | PDF preview | Docnet.Core 2.6.0 and its native PDFium runtime; the selected document is read into memory |
