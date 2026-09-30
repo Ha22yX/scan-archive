@@ -51,7 +51,12 @@ app.Use(async(ctx,next)=>{
         if(!ctx.Response.HasStarted){ctx.Response.StatusCode=ex is ArgumentException?400:ex is KeyNotFoundException?404:500;await ctx.Response.WriteAsJsonAsync(new{error=ex.Message});}
     }
 });
-app.UseDefaultFiles();app.UseStaticFiles();app.UseAuthentication();app.UseAuthorization();
+var uiFiles=new StaticFileOptions{
+    // Revalidate the local UI after an application update, including its Markdown renderer.
+    OnPrepareResponse=context=>context.Context.Response.Headers.CacheControl="no-cache, must-revalidate"
+};
+app.UseDefaultFiles();app.UseStaticFiles(uiFiles);
+app.UseAuthentication();app.UseAuthorization();
 string passwordFile=Path.Combine(settings.DataRoot,"web-password.json");
 var attempts=new ConcurrentDictionary<string,(DateTime start,int count)>();
 bool Verify(string password)
@@ -140,6 +145,6 @@ api.MapPost("/chat",async(JsonObject body,DesktopCommands desktop,CancellationTo
 });
 api.MapGet("/memories",(Database db)=>db.Rows("SELECT * FROM memories ORDER BY created DESC"));
 api.MapDelete("/memories/{id}",(string id,Database db)=>{db.Exec("DELETE FROM memories WHERE id=$i",("$i",id));return Results.Ok();});
-app.MapFallbackToFile("index.html");
+app.MapFallbackToFile("index.html",uiFiles);
 app.Run();
 public partial class Program { }

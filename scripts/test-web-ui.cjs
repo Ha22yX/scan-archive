@@ -18,7 +18,8 @@ const root = path.resolve(process.argv[2] || path.join(__dirname, '..', 'ScanArc
 const outputRoot = process.argv[3] || process.env.SCANARCHIVE_UI_OUTPUT || path.join(os.tmpdir(), 'scan-archive-web-ui-' + Date.now());
 const output = path.join(outputRoot, 'screenshots'); fs.mkdirSync(output, {recursive:true});
 const id = '0123456789abcdef0123456789abcdef', parentId = 'fedcba9876543210fedcba9876543210';
-const fixtureText = `# 文件概览\n\n这是一份**合成保修资料**，仅用于界面验证。\n\n## 重要信息\n\n| 项目 | 内容 |\n| --- | --- |\n| 保修期限 | 24 个月 |\n| 日期 | 2026-09-30 |\n\n> 原件始终可以按页追溯。\n\n1. 准备购买凭证。\n2. 提供设备序列号。\n\n[安全链接](https://example.com/reference)\n[危险链接](javascript:alert(1))\n[本机文件链接](file:///C:/private)\n[数据链接](data:text/html,unsafe)\n![不应加载的远程图片](https://fixture-invalid.example/pixel.png)\n\n<img src=x onerror="window.__injected=true">\n<script>window.__injected=true</script>\n\n\`\`\`text\n${'LONG_UNBROKEN_TOKEN_'.repeat(70)}\n\`\`\`\n\n`;
+const overviewRegressionMarkdown = `### 文档内容概括\n\n这是一份**合成采购记录**，以下名称和金额全部为虚构测试数据。\n\n#### 金额明细\n\n| 项目 | 金额 |\n| --- | ---: |\n| 商品金额 | $1,250.00 |\n| 税费 | $100.00 |\n| 合计 | **$1,350.00** |\n\n#### 核对要点\n\n- **付款方式**：银行卡\n- 单据编号：SYNTHETIC-2026-001\n\n1. 核对商品与税费。\n2. 保存付款凭证。\n\n`;
+const fixtureText = overviewRegressionMarkdown + `# 文件概览\n\n这是一份**合成保修资料**，仅用于界面验证。\n\n## 重要信息\n\n| 项目 | 内容 |\n| --- | --- |\n| 保修期限 | 24 个月 |\n| 日期 | 2026-09-30 |\n\n> 原件始终可以按页追溯。\n\n1. 准备购买凭证。\n2. 提供设备序列号。\n\n[安全链接](https://example.com/reference)\n[危险链接](javascript:alert(1))\n[本机文件链接](file:///C:/private)\n[数据链接](data:text/html,unsafe)\n![不应加载的远程图片](https://fixture-invalid.example/pixel.png)\n\n<img src=x onerror="window.__injected=true">\n<script>window.__injected=true</script>\n\n\`\`\`text\n${'LONG_UNBROKEN_TOKEN_'.repeat(70)}\n\`\`\`\n\n`;
 const wideTable = '| '+Array.from({length:10},(_,i)=>'Column '+(i+1)).join(' | ')+' |\n| '+Array(10).fill('---').join(' | ')+' |\n| '+Array(10).fill('UNBROKEN_TABLE_CELL_'.repeat(15)).join(' | ')+' |\n\n';
 const longMarkdown = fixtureText + wideTable + Array.from({length:100},(_,n)=>`### 第 ${n+1} 条线索\n\n这段合成说明用于验证长文档概括和对话的独立滚动。关键词包括**凭证**、售后与保修。` ).join('\n\n') + `\n\n[[${id}:0]]\n\n[[${id}:9999999999999999999999999999999999999999]]\n\n[[${id}:2]]`;
 const now = '2026-09-30T10:24:00-04:00';
@@ -70,6 +71,22 @@ const server=http.createServer((req,res)=>{
  const results=[];const check=async(name,fn)=>{try{await fn();results.push({name,pass:true});}catch(e){results.push({name,pass:false,error:e.message});}};
  const noOverflow=async()=>{const r=await page.evaluate(()=>({scroll:document.documentElement.scrollWidth,width:document.documentElement.clientWidth}));assert.ok(r.scroll<=r.width+1,JSON.stringify(r));};
  const screenshot=async name=>page.screenshot({path:path.join(output,name+'.png'),fullPage:false});
+ const documentMarkdownDom=async selector=>{
+   const container=page.locator(selector);assert.ok(await container.isVisible(),selector+' must be visible');
+   assert.equal(await container.getByRole('heading',{name:'文档内容概括',exact:true}).count(),1);
+   assert.equal(await container.getByRole('heading',{name:'金额明细',exact:true}).count(),1);
+   assert.equal(await container.getByRole('heading',{name:'核对要点',exact:true}).count(),1);
+   const levels=await container.locator('h1,h2,h3,h4,h5,h6').evaluateAll(nodes=>Object.fromEntries(nodes.filter(e=>['文档内容概括','金额明细'].includes(e.textContent)).map(e=>[e.textContent,Number(e.tagName.slice(1))])));
+   assert.equal(levels['金额明细'],levels['文档内容概括']+1,'Markdown heading hierarchy must remain nested');
+   assert.equal(await container.locator('strong').filter({hasText:'合成采购记录'}).count(),1);
+   assert.equal(await container.locator('ul > li').filter({hasText:'付款方式：银行卡'}).count(),1);
+   assert.equal(await container.locator('ol > li').filter({hasText:'核对商品与税费。'}).count(),1);
+   const table=container.locator('table').filter({has:page.getByRole('columnheader',{name:'金额',exact:true})});assert.equal(await table.count(),1);
+   assert.deepEqual(await table.locator('thead th').allTextContents(),['项目','金额']);
+   assert.deepEqual(await table.locator('tbody tr').evaluateAll(rows=>rows.map(row=>[...row.querySelectorAll('td')].map(cell=>cell.textContent))),[['商品金额','$1,250.00'],['税费','$100.00'],['合计','$1,350.00']]);
+   assert.equal(await table.locator('td strong').innerText(),'$1,350.00');
+   const text=await container.innerText();for(const raw of ['### 文档内容概括','#### 金额明细','**合成采购记录**','| 商品金额 |'])assert.ok(!text.includes(raw),selector+' contains unrendered Markdown: '+raw);
+ };
  const composerVisible=async()=>{const viewport=page.viewportSize();for(const selector of ['#chat-form','#chat-input','#send']){const box=await page.locator(selector).boundingBox();assert.ok(box&&box.height>0&&box.width>0&&box.y>=0&&box.x>=0&&box.y+box.height<=viewport.height+1&&box.x+box.width<=viewport.width+1,JSON.stringify({selector,box,viewport}));}};
 
  try {
@@ -85,7 +102,11 @@ const server=http.createServer((req,res)=>{
    await page.goto(base,{waitUntil:'networkidle'});await page.locator('#shell').waitFor({state:'visible'});await page.locator('.document-card').first().waitFor();
    await check('desktop library does not overflow horizontally',noOverflow);await screenshot('library-desktop');
    await page.locator('.document-card').first().click();await page.locator('#document-dialog').waitFor({state:'visible'});
-   await check('summary renders heading, strong, table',async()=>{assert.ok(await page.locator('#doc-summary h2,#doc-summary h3,#doc-summary h4').count());assert.ok(await page.locator('#doc-summary strong').count());assert.ok(await page.locator('#doc-summary table').count());});
+   await check('document overview renders third/fourth-level headings, emphasis, lists and currency table as DOM',()=>documentMarkdownDom('#doc-summary'));await screenshot('markdown-overview-desktop');
+   await check('per-page analysis tab renders the same structured Markdown as DOM',async()=>{
+     await page.locator('[data-detail="page"]').click();assert.ok(await page.locator('#detail-page').isVisible());await documentMarkdownDom('#page-summary');await screenshot('markdown-page-analysis-desktop');
+     await page.locator('[data-detail="summary"]').click();assert.ok(await page.locator('#detail-summary').isVisible());
+   });
    await check('summary does not execute raw HTML or unsafe links/images',async()=>{assert.equal(await page.locator('#doc-summary script,#doc-summary img,#doc-summary [onerror],#doc-summary a[href^="javascript:"],#doc-summary a[href^="file:"],#doc-summary a[href^="data:"]').count(),0);assert.equal(await page.evaluate(()=>!!window.__injected),false);assert.equal(outside.length,0);});
    await check('wide tables and code remain accessible in their own scroll region',async()=>{
      const overflowing=await page.locator('#doc-summary .table-scroll,#doc-summary pre').evaluateAll(nodes=>nodes.filter(e=>e.scrollWidth>e.clientWidth+1).map(e=>({tag:e.tagName,overflow:getComputedStyle(e).overflowX,width:e.clientWidth,scroll:e.scrollWidth})));
