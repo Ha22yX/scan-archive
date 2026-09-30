@@ -11,6 +11,13 @@ static class SelfTest
         string report = Path.Combine(AppContext.BaseDirectory, "self-test.txt");
         try
         {
+            using(var markdown=new MarkdownView{Width=400}){
+                markdown.SetMarkdown("## 标题\n\n**关键内容** 与 `code`\n\n- 第一项\n- 第二项\n\n| 字段 | 值 |\n| --- | --- |\n| 保修 | 24个月 |\n\n> 保留原件\n\n```\n{\\rtf1 注入}\n```\n\n![外部图片](https://invalid.example/a.png)");
+                if(!markdown.Text.Contains("标题")||!markdown.Text.Contains("24个月")||!markdown.Text.Contains(@"{\rtf1 注入}")||markdown.Text.Contains("**"))throw new Exception("Markdown rendering lost text or failed escaping");
+                markdown.Select(markdown.Text.IndexOf("关键内容",StringComparison.Ordinal),4);
+                if(markdown.SelectionFont?.Bold!=true)throw new Exception("Markdown emphasis was not rendered");
+                markdown.Width=240;if(!markdown.Text.Contains("保修"))throw new Exception("Markdown resize lost table content");
+            }
             int attempts = 0, waits = 0;
             int transferred = Scanner.TransferWithRetry(() =>
             {

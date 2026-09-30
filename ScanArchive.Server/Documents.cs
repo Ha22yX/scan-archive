@@ -74,7 +74,7 @@ public sealed class Documents(AppSettings settings, Database db)
     }
     public string Enqueue(string kind,string payload)
     {
-        if(kind is "index" or "organize" or "embeddings" or "reindex" && db.Doc(payload)?.S("status")=="deleted")throw new InvalidOperationException("请先从回收站恢复此文件。");
+        if(kind is "index" or "organize" or "embeddings" or "reindex" or "format_summary" && db.Doc(payload)?.S("status")=="deleted")throw new InvalidOperationException("请先从回收站恢复此文件。");
         var old=db.Rows("SELECT id FROM jobs WHERE kind=$k AND payload=$p AND status IN ('pending','running')",("$k",kind),("$p",payload)).FirstOrDefault();
         if(old!=null)return old.S("id");
         string id=Guid.NewGuid().ToString("N");
@@ -173,6 +173,7 @@ public sealed class Documents(AppSettings settings, Database db)
         var pages=db.Rows("SELECT number,text,summary FROM pages WHERE doc_id=$i ORDER BY number",("$i",id));
         foreach(var page in pages) { page["analysis"]=JsonNode.Parse(page.S("summary"));page.Remove("summary"); }
         var data=new JsonObject{["schema_version"]=1,["document"]=doc,["pages"]=new JsonArray(pages.Select(x=>(JsonNode)x).ToArray()),["analysis_history"]=new JsonArray(db.Rows("SELECT page,model,analyzed_at FROM analyses WHERE doc_id=$i ORDER BY page",("$i",id)).Select(x=>(JsonNode)x).ToArray()),["updated_at"]=Database.Now};
+        data["summary_revisions"]=new JsonArray(db.Rows("SELECT before_summary,after_summary,model,created FROM summary_revisions WHERE doc_id=$i ORDER BY created",("$i",id)).Select(x=>(JsonNode)x).ToArray());
         data["scans"]=new JsonArray(db.Rows("SELECT scan_id,scanned,device,source FROM scan_submissions WHERE doc_id=$i ORDER BY scanned",("$i",id)).Select(x=>(JsonNode)x).ToArray());
         string directory=Path.Combine(Root,".scanarchive-metadata");Directory.CreateDirectory(directory);
         if(File.GetAttributes(directory).HasFlag(FileAttributes.ReparsePoint))throw new IOException("元数据目录不能是链接。");

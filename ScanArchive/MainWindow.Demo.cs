@@ -9,7 +9,7 @@ public sealed partial class MainWindow
     {
         connection.Text="● 演示文档库\n本机与远程同步";status.Text="准备就绪 · 放入纸张即可开始扫描";
         listTitle.Text="文档库 · 3 份";listHint.Text="1–3 / 3 · 所有文档已归档";
-        var row=new JsonObject{["id"]="demo",["title"]="设备保修凭证",["status"]="ready",["category"]="生活 / 保修",["scanned"]="2026-09-29T15:24:00-04:00",["page_count"]=2,["summary"]="这份文件记录了设备的购买信息、保修期限与售后联系方式。\n\n保修服务自购买之日起生效。申请服务时需要提供购买凭证及设备序列号。\n\n可用于查找：保修到期时间、购买渠道、售后申请材料。",["tags"]="设备、保修、购买凭证、warranty"};
+        var row=new JsonObject{["id"]="demo",["title"]="设备保修凭证",["status"]="ready",["category"]="生活 / 保修",["scanned"]="2026-09-29T15:24:00-04:00",["page_count"]=2,["summary"]="### 文件概览\n\n这份文件记录了设备的**购买信息**与保修条款。\n\n### 重要信息\n\n| 项目 | 内容 |\n| --- | --- |\n| 购买日期 | 2026-09-29 |\n| 保修期限 | 24 个月 |\n\n### 申请服务\n\n1. 准备购买凭证。\n2. 提供设备序列号。\n\n> 请保留原件，重要信息以原文为准。\n\n### 可以查询\n\n- 保修到期时间\n- 售后申请所需材料",["tags"]="设备、保修、购买凭证、warranty"};
         PopulateFiles(new JsonArray(row,new JsonObject{["id"]="demo2",["title"]="物理课堂笔记",["status"]="ready",["category"]="学习 / 物理"},new JsonObject{["id"]="demo3",["title"]="家庭资料清单",["status"]="ready",["category"]="生活 / 家庭"}),false);
         selectedDocument=row;selectedId="demo";selectedPages=new();ApplyDetails(new JsonObject{["document"]=row.DeepClone(),["pages"]=new JsonArray()});
         var bitmap=new Bitmap(700,960);using(var g=Graphics.FromImage(bitmap)){

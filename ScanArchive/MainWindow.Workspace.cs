@@ -14,7 +14,7 @@ public sealed partial class MainWindow
     readonly Button previousPage=new(){Text="‹",Width=36,Height=30},nextPage=new(){Text="›",Width=36,Height=30};
     readonly Label pageNumber=new(){Text="—",Width=64,Height=30,TextAlign=ContentAlignment.MiddleCenter};
     readonly NumericUpDown pageJump=new(){Minimum=1,Maximum=1,Width=55,Height=30};
-    readonly RichTextBox summary=new(){Dock=DockStyle.Fill,ReadOnly=true,BorderStyle=BorderStyle.None,BackColor=Color.White,ForeColor=Ink,DetectUrls=false};
+    readonly MarkdownView summary=new();
     readonly Label documentFacts=new(){Dock=DockStyle.Top,Height=90,ForeColor=Muted,AutoEllipsis=true};
     readonly TabControl inspector=new(){Dock=DockStyle.Fill};
     readonly Button listPrevious=new(){Text="上一批",Width=72,Height=30},listNext=new(){Text="下一批",Width=72,Height=30};
@@ -69,8 +69,8 @@ public sealed partial class MainWindow
         viewer.Controls.Add(canvas);viewer.Controls.Add(pdfNavigation);viewer.Controls.Add(previewTitle);canvas.BringToFront();
         var previewCard=Card("",viewer);previewCard.Margin=new Padding(0,0,10,0);grid.Controls.Add(previewCard,1,0);
         var detailsTab=new TabPage("文档详情"){BackColor=Color.White,Padding=new Padding(10)};
-        var tools=new FlowLayoutPanel{Dock=DockStyle.Bottom,Height=90,WrapContents=true};
-        tools.Controls.AddRange([ActionButton("修改归档",EditSelected,this,96),ActionButton("询问秘书",()=>{AskAboutSelected();return Task.CompletedTask;},this,96),ActionButton("重新整理",()=>DocumentAction("organize"),this,96),ActionButton("分析重试",()=>DocumentAction("retry_analysis"),this,96)]);
+        var tools=new FlowLayoutPanel{Dock=DockStyle.Bottom,Height=116,WrapContents=true};
+        tools.Controls.AddRange([ActionButton("修改归档",EditSelected,this,96),ActionButton("询问秘书",()=>{AskAboutSelected();return Task.CompletedTask;},this,96),ActionButton("重新整理",()=>DocumentAction("organize"),this,96),ActionButton("Markdown 整理",()=>DocumentAction("format_summary"),this,135),ActionButton("分析重试",()=>DocumentAction("retry_analysis"),this,96)]);
         detailsTab.Controls.Add(summary);detailsTab.Controls.Add(tools);detailsTab.Controls.Add(documentFacts);summary.BringToFront();
         inspector.TabPages.Add(detailsTab);inspector.TabPages.Add(BuildSecretary());
         grid.Controls.Add(Card("",inspector),2,0);
@@ -129,7 +129,7 @@ public sealed partial class MainWindow
     {
         string id=S(row,"id");if(id=="")id=S(row,"doc_id");
         int targetPage=Math.Max(0,N(row,"page")-1);
-        bool changed=id!=selectedId;if(changed)selectedDocument=null;selectedId=id;int version=++selectionVersion;
+        bool changed=id!=selectedId;if(changed){selectedDocument=null;summary.Clear();}selectedId=id;int version=++selectionVersion;
         var result=await SecretaryIntegration.Command("document",new(){["id"]=id},lifetime.Token);
         if(IsDisposed||version!=selectionVersion)return;
         ApplyDetails(result);previewTitle.Text=S(selectedDocument,"title");
@@ -150,13 +150,16 @@ public sealed partial class MainWindow
     void UpdatePageSummary()
     {
         if(selectedDocument==null)return;
-        string text=S(selectedDocument,"summary");if(text=="")text="内容分析尚未完成。原件已保存，你可以继续扫描；秘书将在后台处理。";
-        text+="\n\n关键词\n"+S(selectedDocument,"tags");
-        if(S(selectedDocument,"parent_id")!="")text+="\n\n来源页码："+S(selectedDocument,"source_pages")+"\n原始扫描编号："+S(selectedDocument,"parent_id");
-        if(S(selectedDocument,"error")!="")text+="\n\n处理提示\n"+S(selectedDocument,"error");
+        string body=S(selectedDocument,"summary");if(body=="")body="内容分析尚未完成。原件已保存，你可以继续扫描；秘书将在后台处理。";
+        string text="## 内容概括\n\n"+body;
+        string tags=S(selectedDocument,"tags");
+        if(tags!="")text+="\n\n## 关键词\n\n"+string.Join(" · ",tags.Split([',','，'],StringSplitOptions.RemoveEmptyEntries|StringSplitOptions.TrimEntries));
+        if(S(selectedDocument,"parent_id")!="")text+="\n\n## 来源追溯\n\n- 原始页码："+S(selectedDocument,"source_pages")+"\n- 原始扫描编号：`"+S(selectedDocument,"parent_id")+"`";
+        if(S(selectedDocument,"error")!="")text+="\n\n## 处理提示\n\n"+S(selectedDocument,"error");
         var page=selectedPages.FirstOrDefault(p=>N(p,"number")==previewPage+1);
-        if(page!=null)text+=$"\n\n第 {previewPage+1} 页 · 识别原文\n"+S(page,"text");
-        if(summary.Text!=text){int pos=summary.SelectionStart;summary.Text=text;summary.Select(Math.Min(pos,text.Length),0);}
+        if(page!=null)text+=$"\n\n---\n\n## 第 {previewPage+1} 页 · 识别原文\n\n"+S(page,"text");
+        summary.SetMarkdown(text);
+
     }
     async Task RenderPage(int page)
     {
@@ -189,7 +192,7 @@ public sealed partial class MainWindow
     async Task DocumentAction(string action)
     {
         if(selectedId==""){status.Text="请先选择文档。";return;}
-        await SecretaryIntegration.Command(action,new(){["id"]=selectedId});status.Text=action=="unlock"?"已允许秘书调整此文档":"任务已加入队列，可在处理记录中查看";await RefreshFiles(true);
+        await SecretaryIntegration.Command(action,new(){["id"]=selectedId});status.Text=action=="unlock"?"已允许秘书调整此文档":action=="format_summary"?"Markdown 整理已排队 · 完成后概括会自动更新":"任务已加入队列，可在处理记录中查看";await RefreshFiles(true);
     }
     async Task EditSelected()
     {

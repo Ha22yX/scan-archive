@@ -66,6 +66,7 @@ public sealed class Worker(AppSettings settings,Database db,Documents docs,Analy
         {
             switch(kind)
             {
+                case "format_summary":await analyzer.FormatSummary(payload,ct);break;
                 case "index":await analyzer.Analyze(payload,ct);break;
                 case "embeddings":await analyzer.RepairEmbeddings(payload,ct);break;
                 case "reindex":await analyzer.Reindex(payload,ct);break;

@@ -7,6 +7,18 @@ namespace ScanArchive.Server.Tests;
 
 public class DesktopTests
 {
+    [Fact] public async Task MarkdownFormattingKeepsOriginalMetadataAndRevisionWithoutReanalyzingPages()
+    {
+        var f=new LibraryFixture();string id=await f.Docs.Import(f.Pdf());
+        f.Db.Exec("UPDATE documents SET status='ready',summary='凭证 INV-00317，保修期 24 个月。' WHERE id=$i",("$i",id));
+        var before=f.Db.Doc(id)!;await f.Analyzer.FormatSummary(id,default);var after=f.Db.Doc(id)!;
+        Assert.Contains("###",after.S("summary"));Assert.Equal(before.S("scanned"),after.S("scanned"));Assert.Equal(before.S("original"),after.S("original"));Assert.Equal(before.S("title"),after.S("title"));
+        Assert.Equal(0,f.Fake.PageCalls);Assert.Equal(0,f.Fake.EmbeddingCalls);
+        Assert.Equal(before.S("summary"),f.Db.Rows("SELECT before_summary FROM summary_revisions WHERE doc_id=$i",("$i",id)).Single().S("before_summary"));
+        var metadata=JsonNode.Parse(File.ReadAllText(Path.Combine(f.Docs.Root,".scanarchive-metadata",id+".json")))!;
+        Assert.Single(metadata["summary_revisions"]!.AsArray());
+        f.Fake.EmptyFormattedSummary=true;await Assert.ThrowsAsync<InvalidDataException>(()=>f.Analyzer.FormatSummary(id,default));Assert.Equal(after.S("summary"),f.Db.Doc(id)!.S("summary"));
+    }
     static DesktopCommands Client(LibraryFixture f)=>new(f.Settings,f.Db,f.Docs,f.Search);
     [Fact] public async Task DesktopBrowseDetailsAndRestoreShareLibraryRecords()
     {

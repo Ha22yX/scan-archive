@@ -44,6 +44,7 @@ The core starts with the desktop application. An interrupted handoff stays in th
 
 - **Capture and browse:** the scan button stays available across the app. The library shows processing states, category/status filters and batches of 60 documents. Background refresh preserves the selected document and preview page.
 - **Read and find:** search combines exact text, full-text and semantic retrieval. Selecting a match opens its page. Preview supports previous/next, direct page number entry and opening the original. PDF rendering runs off the UI thread.
+- **Readable document details:** native Markdown rendering supports headings, emphasis, lists, quotes, code and tables. New AI summaries use structured Markdown. Use **Markdown 整理** on an existing document to reformat its summary without rescanning; before/after revisions are preserved in SQLite and JSON metadata. Right-click the detail pane to copy Markdown. HTML and remote images are not executed or loaded.
 - **Ask your secretary:** use the side panel, optionally attach the selected document/page, resume existing conversations and click source references to preview them. Pending/running jobs remain visible while work continues in the background.
 - **Manage and recover:** change titles/categories, lock manual choices, unlock them for the agent, retry analysis, request organization, undo moves and restore trashed records.
 - **Shortcuts:** `Ctrl+F` focuses search, `F5` refreshes, `Ctrl+Enter` sends a chat message, and `Delete` on the document list opens a deletion confirmation.

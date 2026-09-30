@@ -35,7 +35,7 @@ public sealed class LibraryFixture
 public sealed class FakeApi:HttpMessageHandler
 {
     public int PageCalls,MetadataCalls,EmbeddingCalls;
-    public bool EmbeddingsFail;
+    public bool EmbeddingsFail,EmptyFormattedSummary;
     public TaskCompletionSource? EmbeddingEntered,ReleaseEmbedding;
     public readonly List<JsonObject> Requests=[];
     public readonly Queue<JsonObject> AgentResponses=[];
@@ -52,7 +52,8 @@ public sealed class FakeApi:HttpMessageHandler
         else
         {
             string name=body["text"]!["format"]!.S("name");JsonObject value;
-            if(name=="page_analysis")
+            if(name=="format_summary")value=new(){["summary"]=EmptyFormattedSummary?"":"### 重要信息\n\n- **凭证**：INV-00317\n- 保修期 24 个月"};
+            else if(name=="page_analysis")
             {
                 PageCalls++;value=new(){["text"]=$"第 {PageCalls} 页 运动学 velocity 发票编号 INV-00317 保修 warranty",["summary"]="详细描述位移速度计算和保修信息",["topics"]="物理,运动学,velocity,warranty",["entities"]="Brother",["dates_and_numbers"]="INV-00317 775km",["document_title"]="练习资料",["readability"]="清晰"};
             }

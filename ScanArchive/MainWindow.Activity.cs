@@ -36,7 +36,7 @@ public sealed partial class MainWindow
             string selected=view.SelectedItems.Count>0?S(view.SelectedItems[0].Tag as JsonNode,"id"):"";view.BeginUpdate();
             try{view.Items.Clear();foreach(var r in rows){if(r==null)continue;var item=new ListViewItem(columns(r)){Tag=r,ToolTipText=S(r,"error")};view.Items.Add(item);if(S(r,"id")==selected)item.Selected=true;}}finally{view.EndUpdate();}
         }
-        Fill(jobsList,data["jobs"]!.AsArray(),r=>[S(r,"kind") switch{"index"=>"内容分析","organize"=>"文档整理","chat"=>"秘书对话","review"=>"全库检查","reindex"=>"重建索引","embeddings"=>"修复向量",_=>S(r,"kind")},PipelineStatus(S(r,"status")),S(r,"document_title")==""?S(r,"error"):S(r,"document_title"),LocalTime(S(r,"updated"))]);
+        Fill(jobsList,data["jobs"]!.AsArray(),r=>[S(r,"kind") switch{"format_summary"=>"Markdown 整理","index"=>"内容分析","organize"=>"文档整理","chat"=>"秘书对话","review"=>"全库检查","reindex"=>"重建索引","embeddings"=>"修复向量",_=>S(r,"kind")},PipelineStatus(S(r,"status")),S(r,"document_title")==""?S(r,"error"):S(r,"document_title"),LocalTime(S(r,"updated"))]);
         Fill(movesList,data["operations"]!.AsArray(),r=>[LocalTime(S(r,"created")),S(r,"state"),S(r,"new_path"),S(r,"reason")]);
         Fill(trashList,data["trash"]!.AsArray(),r=>[S(r,"title"),LocalTime(S(r,"deleted_at"))]);
         Fill(logList,data["activity"]!.AsArray(),r=>[LocalTime(S(r,"time")),S(r,"kind"),S(r,"message")]);

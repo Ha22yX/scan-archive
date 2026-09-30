@@ -37,6 +37,9 @@ public sealed class DesktopCommands(AppSettings settings, Database db, Documents
             case "organize":
                 if(db.Doc(id)?.S("status") is not ("ready" or "analyzed")) throw new ArgumentException("请等待内容分析完成后再整理。");
                 return new(){["job"]=docs.Enqueue("organize",id)};
+            case "format_summary":
+                if(db.Doc(id)?.S("status") is not ("ready" or "analyzed"))throw new ArgumentException("请等待文档分析完成后再整理概括。");
+                return new(){["job"]=docs.Enqueue("format_summary",id)};
             case "retry_analysis": return new(){["job"]=docs.Enqueue("index",id)};
             case "maintenance": return new(){["job"]=docs.Enqueue("review","manual:"+Guid.NewGuid().ToString("N"))};
             case "activity": return new(){

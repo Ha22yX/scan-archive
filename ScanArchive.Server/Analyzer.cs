@@ -17,7 +17,7 @@ public sealed class Analyzer(AppSettings settings,Database db,Documents document
             byte[] png=documents.PageImage(doc,page);
             var schema=OpenAi.Schema(("text","string"),("summary","string"),("topics","string"),("entities","string"),("dates_and_numbers","string"),("document_title","string"),("readability","string"));
             var result=await ai.Structured(DataRule,new JsonArray(
-                new JsonObject{["type"]="input_text",["text"]=$"Analyze page {page} of {count}. Transcribe ALL visible text into text (use markdown for tables and preserve formulas). summary must comprehensively cover all sections and what this page can answer, not only a vague sentence. topics should include specific concepts, bilingual aliases and searchable phrases. entities covers people, organizations, products and identifiers. dates_and_numbers preserves important exact values. readability records uncertainty and suspected clipping. document_title is the title this page belongs to. Do not treat scan date as document date."},
+                new JsonObject{["type"]="input_text",["text"]=$"Analyze page {page} of {count}. Transcribe ALL visible text into text (use markdown for tables and preserve formulas). summary must be readable Markdown with short headings and bullet lists, and comprehensively cover all sections and what this page can answer, not only a vague sentence. topics should include specific concepts, bilingual aliases and searchable phrases. entities covers people, organizations, products and identifiers. dates_and_numbers preserves important exact values. readability records uncertainty and suspected clipping. document_title is the title this page belongs to. Do not treat scan date as document date."},
                 new JsonObject{["type"]="input_image",["image_url"]="data:image/png;base64,"+Convert.ToBase64String(png),["detail"]="high"}),schema,"page_analysis",ct);
             db.Exec("INSERT INTO pages(doc_id,number,text,summary) VALUES($d,$p,$t,$s)",("$d",id),("$p",page),("$t",result.S("text")),("$s",result.ToJsonString()));
             db.Exec("INSERT OR REPLACE INTO analyses VALUES($d,$p,$m,$t)",("$d",id),("$p",page),("$m",settings.Current.Model),("$t",Database.Now));
@@ -33,7 +33,7 @@ public sealed class Analyzer(AppSettings settings,Database db,Documents document
             if(pages.Count<=12){outlines.Add(input);continue;}
             var group=await ai.Structured(DataRule,new JsonArray(new JsonObject{["type"]="input_text",["text"]="Create a detailed retrieval outline of ALL the following pages. Include page references, document boundaries, names, numeric facts and bilingual keywords.\n"+input}),OpenAi.Schema(("outline","string")),"page_group",ct);outlines.Add(group.S("outline"));
         }
-        var metadata=await ai.Structured(DataRule,new JsonArray(new JsonObject{["type"]="input_text",["text"]="Build comprehensive document metadata from all page analyses. summary should cover all subjects, key facts, entities and what questions this file can answer. tags is a rich comma-separated list of Chinese and English search terms, proper names, subject vocabulary, dates and identifiers. document_date must be an explicit date found in the source or empty. mixed_content=true only if this scan contains multiple independent documents, not merely multiple sections of one document. Do not propose a folder; the main agent will decide.\n"+string.Join("\n",outlines)}),
+        var metadata=await ai.Structured(DataRule,new JsonArray(new JsonObject{["type"]="input_text",["text"]="Build comprehensive document metadata from all page analyses. summary must be well-structured Markdown: use ### section headings, concise paragraphs, bullet or numbered lists, bold labels for key facts, and pipe tables only for genuinely tabular facts. Organize into overview, key content, important facts/identifiers, page guide, questions this file can answer, and uncertainties when relevant. Cover all subjects, key facts and entities in detail; do not sacrifice information for formatting. Avoid a single dense paragraph. Do not wrap the whole summary in a code fence or use HTML. tags is a rich comma-separated list of Chinese and English search terms, proper names, subject vocabulary, dates and identifiers. document_date must be an explicit date found in the source or empty. mixed_content=true only if this scan contains multiple independent documents, not merely multiple sections of one document. Do not propose a folder; the main agent will decide.\n"+string.Join("\n",outlines)}),
             OpenAi.Schema(("title","string"),("summary","string"),("tags","string"),("document_date","string"),("mixed_content","boolean")),"document_metadata",ct);
         db.Exec("UPDATE documents SET title=$t,summary=$s,tags=$tags,document_date=$date,mixed_content=$mix,status='indexing' WHERE id=$i",("$t",metadata.S("title")),("$s",metadata.S("summary")),("$tags",metadata.S("tags")),("$date",metadata.S("document_date")),("$mix",metadata["mixed_content"]!.GetValue<bool>()?1:0),("$i",id));
         db.Exec("INSERT OR REPLACE INTO analyses VALUES($d,0,$m,$t)",("$d",id),("$m",settings.Current.Model),("$t",Database.Now));
@@ -41,6 +41,25 @@ public sealed class Analyzer(AppSettings settings,Database db,Documents document
         await Reindex(id,ct);
         db.Exec("UPDATE documents SET status='analyzed',error='' WHERE id=$i",("$i",id));documents.WriteMetadata(id);
         if(settings.Current.AutoOrganize)documents.Enqueue("organize",id);
+    }
+    public async Task FormatSummary(string id,CancellationToken ct)
+    {
+        var doc=db.Doc(id)??throw new KeyNotFoundException("文档不存在。");
+        if(doc.S("status") is not ("ready" or "analyzed")||string.IsNullOrWhiteSpace(doc.S("summary")))throw new ArgumentException("请先完成文档分析。");
+        string before=doc.S("summary");
+        var result=await ai.Structured(DataRule,new JsonArray(new JsonObject{["type"]="input_text",["text"]="Reorganize the following existing summary into clear Chinese Markdown without adding, correcting or deleting facts. Preserve ALL names, exact identifiers, formulas, dates, source page references and uncertainty. Use ### headings, short paragraphs, bold key labels, lists and pipe tables where appropriate. Include topic sections and what the document can answer. Do not use HTML, external images or a wrapping code fence. Return only the reformatted summary field. This is a formatting task, not new analysis.\n\n"+before}),OpenAi.Schema(("summary","string")),"format_summary",ct);
+        string after=result.S("summary");if(string.IsNullOrWhiteSpace(after))throw new InvalidDataException("模型没有返回概括，原内容已保留。");
+        await documents.Mutation.WaitAsync(ct);
+        try {
+            if(db.Doc(id)?.S("summary")!=before||db.Doc(id)?.S("status")=="deleted")throw new InvalidOperationException("文档已发生变化，请重新整理概括。");
+            db.Transaction((c,tx)=>{
+                using var cmd=c.CreateCommand();cmd.Transaction=tx;
+                cmd.CommandText="INSERT INTO summary_revisions VALUES($r,$i,$b,$a,$m,$t); UPDATE documents SET summary=$a WHERE id=$i;";
+                foreach(var (key,value) in new[]{("$r",Guid.NewGuid().ToString("N")),("$i",id),("$b",before),("$a",after),("$m",settings.Current.Model),("$t",Database.Now)})cmd.Parameters.AddWithValue(key,value);
+                cmd.ExecuteNonQuery();
+            });
+            documents.WriteMetadata(id);db.Log("summary","已整理 Markdown 概括："+doc.S("title"));
+        } finally{documents.Mutation.Release();}
     }
     public async Task Reindex(string id,CancellationToken ct)
     {

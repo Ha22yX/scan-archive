@@ -12,6 +12,8 @@
   <ItemGroup>
     <Compile Include="..\Shared\DesktopProtocol.cs" Link="Integration\DesktopProtocol.cs" />
     <Content Include="..\docs\licenses\NAPS2.Wia.txt" Link="NAPS2.Wia.LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\docs\licenses\Markdig.txt" Link="Markdig.LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <PackageReference Include="Markdig" Version="1.4.0" />
     <PackageReference Include="PDFsharp" Version="6.2.2" />
     <PackageReference Include="Docnet.Core" Version="2.6.0" />
     <PackageReference Include="NAPS2.Wia" Version="2.0.3" />
