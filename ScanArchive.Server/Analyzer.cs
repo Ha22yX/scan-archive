@@ -45,19 +45,21 @@ public sealed class Analyzer(AppSettings settings,Database db,Documents document
     public async Task Reindex(string id,CancellationToken ct)
     {
         var doc=db.Doc(id)??throw new KeyNotFoundException();
-        search.Clear(id);
+        var replacement=new List<(int page,string text,float[]? vector,string model)>();
         foreach(var page in db.Rows("SELECT number,text,summary FROM pages WHERE doc_id=$i ORDER BY number",("$i",id)))
         {
             var chunks=Search.Chunk(page.S("text")+"\n"+page.S("summary")).ToList();
             foreach(string chunk in chunks)
             {
-                string enriched=$"{doc.S("title")}\n{doc.S("tags")}\n{chunk}";
+                string enriched=chunk; // A page must not inherit topics from unrelated pages in the batch.
                 // Lexical coverage survives an embedding outage; missing vectors are repairable.
                 float[]? vector=null;
                 try{vector=await ai.Embed(enriched,ct);}catch(OperationCanceledException){throw;}catch(Exception ex){db.Log("embedding",ex.Message);}
-                search.AddChunk(id,page.I("number"),enriched,vector,vector==null?"":settings.Current.EmbeddingModel);
+                replacement.Add((page.I("number"),enriched,vector,vector==null?"":settings.Current.EmbeddingModel));
             }
         }
+        ct.ThrowIfCancellationRequested();
+        search.ReplaceChunks(id,replacement);
         if(db.Rows("SELECT id FROM chunks WHERE doc_id=$i AND embedding IS NULL",("$i",id)).Count>0)documents.Enqueue("embeddings",id);
     }
     public async Task RepairEmbeddings(string id,CancellationToken ct)

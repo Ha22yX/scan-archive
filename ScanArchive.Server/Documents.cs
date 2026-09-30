@@ -91,7 +91,10 @@ public sealed class Documents(AppSettings settings, Database db)
             if(doc.I("locked")==1 && !locked) throw new InvalidOperationException("此文件的分类已由用户锁定。");
             title=Clean(title); category=Category(category);
             string destination=SafePath("Library/"+category+"/"+title+"__"+id[..8]+Path.GetExtension(doc.S("path")));
-            if(string.Equals(destination,doc.S("path"),StringComparison.OrdinalIgnoreCase))return doc;
+            if(string.Equals(destination,doc.S("path"),StringComparison.OrdinalIgnoreCase)){
+                if(locked){db.Exec("UPDATE documents SET locked=1 WHERE id=$i",("$i",id));WriteMetadata(id);}
+                return db.Doc(id)!;
+            }
             Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
             string op=Guid.NewGuid().ToString("N");
             var after=new JsonObject{["title"]=title,["category"]=category,["locked"]=locked?1:0};

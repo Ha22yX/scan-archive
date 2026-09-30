@@ -37,6 +37,18 @@ public sealed class Search(AppSettings settings,Database db,OpenAi ai)
             cmd.Parameters.AddWithValue("$id",id);cmd.Parameters.AddWithValue("$tokens",Tokens(text));cmd.ExecuteNonQuery();
         });
     }
+    public void ReplaceChunks(string doc,IEnumerable<(int page,string text,float[]? vector,string model)> chunks)
+    {
+        db.Transaction((c,tx)=>{
+            using var cmd=c.CreateCommand();cmd.Transaction=tx;
+            cmd.CommandText="DELETE FROM search_fts WHERE chunk_id IN (SELECT id FROM chunks WHERE doc_id=$d); DELETE FROM chunks WHERE doc_id=$d;";cmd.Parameters.AddWithValue("$d",doc);cmd.ExecuteNonQuery();
+            foreach(var chunk in chunks){
+                cmd.Parameters.Clear();cmd.CommandText="INSERT INTO chunks(doc_id,page,text,embedding,model) VALUES($d,$p,$t,$v,$m); SELECT last_insert_rowid();";
+                cmd.Parameters.AddWithValue("$d",doc);cmd.Parameters.AddWithValue("$p",chunk.page);cmd.Parameters.AddWithValue("$t",chunk.text);cmd.Parameters.AddWithValue("$v",chunk.vector==null?DBNull.Value:JsonSerializer.Serialize(chunk.vector));cmd.Parameters.AddWithValue("$m",chunk.model);
+                long id=Convert.ToInt64(cmd.ExecuteScalar());cmd.Parameters.Clear();cmd.CommandText="INSERT INTO search_fts(chunk_id,tokens) VALUES($i,$t)";cmd.Parameters.AddWithValue("$i",id);cmd.Parameters.AddWithValue("$t",Tokens(chunk.text));cmd.ExecuteNonQuery();
+            }
+        });
+    }
     public void Clear(string id)
     {
         db.Transaction((c,tx)=>{
@@ -58,11 +70,16 @@ public sealed class Search(AppSettings settings,Database db,OpenAi ai)
         var hits=new Dictionary<long,(JsonObject row,double score)>();
         void Rank(IEnumerable<JsonObject> list,double weight){int rank=0;foreach(var row in list){long id=long.Parse(row.S("chunk_id"));rank++;if(!hits.ContainsKey(id))hits[id]=(row,0);hits[id]=(hits[id].row,hits[id].score+weight/(60+rank));}}
         string select="SELECT c.id chunk_id,c.doc_id,c.page,c.text,d.title,d.category,d.scanned FROM chunks c JOIN documents d ON d.id=c.doc_id";
-        var exact=db.Rows(select+filter+" AND (instr(lower(c.text),lower($q))>0 OR instr(lower(d.title||' '||d.tags),lower($q))>0) ORDER BY instr(lower(d.title),lower($q))>0 DESC LIMIT 100",args.Append(("$q",(object?)query)).ToArray());Rank(exact,2);
+        var exact=db.Rows(select+filter+" AND instr(lower(c.text),lower($q))>0 ORDER BY c.doc_id,c.page LIMIT 100",args.Append(("$q",(object?)query)).ToArray());Rank(exact,2);
         string tokens=Tokens(query);string match=string.Join(" OR ",tokens.Split(' ',StringSplitOptions.RemoveEmptyEntries).Take(40).Select(t=>"\""+t.Replace("\"","\"\"")+"\""));
         if(match.Length>0)
         {
             var lexical=db.Rows("SELECT c.id chunk_id,c.doc_id,c.page,c.text,d.title,d.category,d.scanned FROM search_fts f JOIN chunks c ON c.id=f.chunk_id JOIN documents d ON d.id=c.doc_id"+filter+" AND search_fts MATCH $q ORDER BY bm25(search_fts) LIMIT 100",args.Append(("$q",(object?)match)).ToArray());Rank(lexical,1);
+        }
+        // Document metadata is a low-weight discovery fallback, never evidence that every page matches.
+        var metadata=db.Rows(select+filter+" AND c.id=(SELECT min(x.id) FROM chunks x WHERE x.doc_id=d.id) AND instr(lower(d.title||' '||d.tags||' '||d.summary),lower($q))>0 LIMIT 100",args.Append(("$q",(object?)query)).ToArray());
+        foreach(var row in metadata.Where(r=>!hits.Values.Any(h=>h.row.S("doc_id")==r.S("doc_id")))){
+            row["text"]="文档整体信息匹配，请打开原文核对具体页面。";row["match_scope"]="document";Rank([row],0.25);
         }
         bool semantic=false;string warning="";
         if(ai.Available)

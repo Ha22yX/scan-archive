@@ -36,6 +36,7 @@ public sealed class FakeApi:HttpMessageHandler
 {
     public int PageCalls,MetadataCalls,EmbeddingCalls;
     public bool EmbeddingsFail;
+    public TaskCompletionSource? EmbeddingEntered,ReleaseEmbedding;
     public readonly List<JsonObject> Requests=[];
     public readonly Queue<JsonObject> AgentResponses=[];
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,CancellationToken ct)
@@ -44,7 +45,7 @@ public sealed class FakeApi:HttpMessageHandler
         JsonObject result;
         if(request.RequestUri!.AbsolutePath.EndsWith("embeddings"))
         {
-            EmbeddingCalls++;if(EmbeddingsFail)return new(HttpStatusCode.BadRequest){Content=new StringContent("{}")};
+            EmbeddingCalls++;EmbeddingEntered?.TrySetResult();if(ReleaseEmbedding!=null)await ReleaseEmbedding.Task.WaitAsync(ct);if(EmbeddingsFail)return new(HttpStatusCode.BadRequest){Content=new StringContent("{}")};
             result=new(){["data"]=new JsonArray(new JsonObject{["embedding"]=new JsonArray(1,0,0)}),["usage"]=new JsonObject{["total_tokens"]=10}};
         }
         else if(body["tools"]!=null)result=AgentResponses.Dequeue();

@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
@@ -11,14 +11,11 @@
 
   <ItemGroup>
     <Compile Include="..\Shared\DesktopProtocol.cs" Link="Integration\DesktopProtocol.cs" />
-    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4258.31" />
     <Content Include="..\docs\licenses\NAPS2.Wia.txt" Link="NAPS2.Wia.LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <PackageReference Include="PDFsharp" Version="6.2.2" />
     <PackageReference Include="Docnet.Core" Version="2.6.0" />
     <PackageReference Include="NAPS2.Wia" Version="2.0.3" />
   </ItemGroup>
-  <Target Name="RemoveUnusedWebViewWpfReference" BeforeTargets="ResolveAssemblyReferences">
-    <ItemGroup><Reference Remove="@(Reference)" Condition="'%(Reference.Filename)' == 'Microsoft.Web.WebView2.Wpf'" /></ItemGroup>
-  </Target>
+
 
 </Project>

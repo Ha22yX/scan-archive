@@ -7,7 +7,7 @@ using ScanArchive.Integration;
 namespace ScanArchive.Server;
 
 // Explicit scanner commands, never an archive-directory watcher.
-public sealed class CaptureCoordinator(AppSettings settings,Database db,Documents docs)
+public sealed class CaptureCoordinator(AppSettings settings,Database db,Documents docs,DesktopCommands? commands=null)
 {
     readonly SemaphoreSlim gate=new(1,1);
     public async Task<JsonObject> Handle(JsonObject request,CancellationToken ct)
@@ -18,7 +18,7 @@ public sealed class CaptureCoordinator(AppSettings settings,Database db,Document
             case "library":
                 return new(){["root"]=settings.Current.LibraryRoot,["documents"]=new JsonArray(db.Rows("SELECT id,title,path,original,scanned,status,category,error,page_count FROM documents WHERE status<>'deleted' ORDER BY scanned DESC LIMIT 100 OFFSET $o",("$o",Math.Max(0,request.I("offset")))).Select(d=>(JsonNode)d).ToArray())};
             case "trash":await docs.Trash(request.S("id"),ct);return new(){["ok"]=true};
-            default:throw new ArgumentException("未知桌面命令。");
+            default:return commands==null?throw new ArgumentException("未知桌面命令。"):await commands.Handle(request,ct);
         }
     }
     async Task<JsonObject> Register(JsonObject r,CancellationToken ct)
@@ -53,23 +53,36 @@ public sealed class DesktopBridge(AppSettings settings,CaptureCoordinator coordi
 {
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
-        while(!ct.IsCancellationRequested)
-        {
-            using var pipe=new NamedPipeServerStream(DesktopProtocol.PipeName(settings.DataRoot),PipeDirection.InOut,1,PipeTransmissionMode.Byte,PipeOptions.Asynchronous|PipeOptions.CurrentUserOnly);
-            try
-            {
-                await pipe.WaitForConnectionAsync(ct);
-                using var timeout=CancellationTokenSource.CreateLinkedTokenSource(ct);timeout.CancelAfter(TimeSpan.FromSeconds(30));
-                using var reader=new StreamReader(pipe,Encoding.UTF8,leaveOpen:true);
-                using var writer=new StreamWriter(pipe,new UTF8Encoding(false),leaveOpen:true){AutoFlush=true};
-                string line=await reader.ReadLineAsync(timeout.Token)??"";
-                JsonObject response;
-                try{if(line.Length>65536)throw new ArgumentException("桌面请求过大。");response=await coordinator.Handle(JsonNode.Parse(line)!.AsObject(),timeout.Token);}
-                catch(Exception ex){response=new(){["error"]=ex.Message};}
-                await writer.WriteLineAsync(response.ToJsonString().AsMemory(),timeout.Token);
+        // A long search must not block scan acknowledgement, browsing or chat polling.
+        using var slots=new SemaphoreSlim(8,8);
+        var active=new List<Task>();
+        try {
+            while(!ct.IsCancellationRequested){
+                await slots.WaitAsync(ct);
+                var pipe=new NamedPipeServerStream(DesktopProtocol.PipeName(settings.DataRoot),PipeDirection.InOut,8,PipeTransmissionMode.Byte,PipeOptions.Asynchronous|PipeOptions.CurrentUserOnly);
+                try{await pipe.WaitForConnectionAsync(ct);}
+                catch{pipe.Dispose();slots.Release();throw;}
+                active.RemoveAll(t=>t.IsCompleted);
+                active.Add(Serve(pipe,slots,ct));
             }
-            catch(OperationCanceledException)when(ct.IsCancellationRequested){break;}
-            catch(Exception ex){logger.LogWarning("Desktop connection ended: {Message}",ex.Message);}
+        }catch(OperationCanceledException)when(ct.IsCancellationRequested){}
+        finally{await Task.WhenAll(active);}
+    }
+    async Task Serve(NamedPipeServerStream pipe,SemaphoreSlim slots,CancellationToken ct)
+    {
+        using(pipe)
+        try{
+            using var timeout=CancellationTokenSource.CreateLinkedTokenSource(ct);timeout.CancelAfter(TimeSpan.FromSeconds(28));
+            using var reader=new StreamReader(pipe,Encoding.UTF8,leaveOpen:true);
+            using var writer=new StreamWriter(pipe,new UTF8Encoding(false),leaveOpen:true){AutoFlush=true};
+            string line=await reader.ReadLineAsync(timeout.Token)??"";
+            JsonObject response;
+            try{if(line.Length>65536)throw new ArgumentException("桌面请求过大。");response=await coordinator.Handle(JsonNode.Parse(line)!.AsObject(),timeout.Token);}
+            catch(Exception ex){response=new(){["error"]=ex.Message};}
+            await writer.WriteLineAsync(response.ToJsonString().AsMemory(),timeout.Token);
         }
+        catch(OperationCanceledException)when(ct.IsCancellationRequested){}
+        catch(Exception ex){logger.LogWarning("Desktop connection ended: {Message}",ex.Message);}
+        finally{slots.Release();}
     }
 }

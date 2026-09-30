@@ -7,11 +7,13 @@
 
 ## The application
 
-![Windows scanning desk](docs/screenshots/home.png)
+![Native Windows workspace with synthetic demonstration documents](docs/screenshots/native-workspace.png)
 
 ![Web document library with synthetic test data](docs/screenshots/web-library.png)
 
-One Windows application with Scan, Library, Secretary and Settings navigation. The library and agent are embedded with WebView2; the browser and LAN dashboard are additional views of the same records and background core. The interface is currently in Simplified Chinese.
+A native Windows workspace brings scanning, the document list, page preview, AI summaries and secretary conversations into one application. Select a document, read it, ask about the current page, and follow an answer’s citations without leaving the workspace. Processing history, reversible file management and all AI settings are native screens too. The interface is currently in Simplified Chinese.
+
+The web dashboard is an optional remote entrance to the same library and conversations. The desktop uses current-user Windows IPC directly; it does not embed a browser and does not require a web login or WebView2.
 
 ## Why this exists
 
@@ -31,12 +33,20 @@ cd scan-archive
 ```
 
 1. In the desktop settings, select your scanner, archive root, resolution and flatbed/feeder mode.
-2. Open **http://localhost:5278**. On the service computer, create a password of at least 10 characters for the web dashboard.
-3. Enter your OpenAI API key in desktop or web settings. The web settings also expose analysis/agent and embedding models, request limits and long-term instructions. Default models are `gpt-6-astra` and `text-embedding-3-large`; choose models your account supports.
+2. If you want remote access, open **http://localhost:5278** on the service computer and create a password of at least 10 characters. The native desktop works without this step.
+3. Enter your OpenAI API key in desktop or web settings. The desktop settings expose analysis/agent and embedding models, request limits, agent step limits and long-term instructions. Default models are `gpt-6-astra` and `text-embedding-3-large`; choose models your account supports.
 4. Enable automatic organization and choose a daily wake time (default **05:00**, using Windows local time).
 5. Scan. The desktop saves the capture to `Inbox`, then submits a durable scan event directly to the core over a Windows named pipe restricted to the current user. The core acknowledges the document ID, analyzes every page, builds the index, and queues the secretary. Desktop and web lists read the same database and update automatically.
 
-The core starts with the desktop application. An interrupted handoff stays in the desktop outbox and is retried while the application is open, including after restart. Both interfaces use the same archive root; changing the web configuration cannot silently send the next scan to an old desktop folder. The desktop file list shows analysis/organization states, not directory contents. Right-click deletion moves a record into the application recycle bin, hides it in both interfaces and search, and retains its bytes; restore it from Activity. Files under active processing cannot be trashed until that task ends. The embedded browser uses the same library password (first sign-in is separate from an external browser). Windows needs the Microsoft Edge WebView2 Runtime. The service starts with the desktop application. You can also run `scripts/start-secretary.ps1`. Closing the scanner window leaves the service running. To opt into Windows sign-in startup, run `scripts/enable-startup.ps1`; use `-Disable` to remove it. The computer must be awake and the archive drive available. A missed daily review is caught up once when the service resumes; this is not a wake-from-sleep task or a pre-login Windows service.
+The core starts with the desktop application. An interrupted handoff stays in the desktop outbox and is retried while the application is open, including after restart. Both interfaces use the same archive root; changing the web configuration cannot silently send the next scan to an old desktop folder. The desktop file list shows analysis/organization states, not directory contents. Right-click deletion moves a record into the application recycle bin, hides it in both interfaces and search, and retains its bytes; restore it from the native Processing History / Recycle Bin or web Activity. Files under active processing cannot be trashed until that task ends. The service starts with the desktop application. You can also run `scripts/start-secretary.ps1`. Closing the scanner window leaves the service running. To opt into Windows sign-in startup, run `scripts/enable-startup.ps1`; use `-Disable` to remove it. The computer must be awake and the archive drive available. A missed daily review is caught up once when the service resumes; this is not a wake-from-sleep task or a pre-login Windows service.
+
+### Working in the desktop app
+
+- **Capture and browse:** the scan button stays available across the app. The library shows processing states, category/status filters and batches of 60 documents. Background refresh preserves the selected document and preview page.
+- **Read and find:** search combines exact text, full-text and semantic retrieval. Selecting a match opens its page. Preview supports previous/next, direct page number entry and opening the original. PDF rendering runs off the UI thread.
+- **Ask your secretary:** use the side panel, optionally attach the selected document/page, resume existing conversations and click source references to preview them. Pending/running jobs remain visible while work continues in the background.
+- **Manage and recover:** change titles/categories, lock manual choices, unlock them for the agent, retry analysis, request organization, undo moves and restore trashed records.
+- **Shortcuts:** `Ctrl+F` focuses search, `F5` refreshes, `Ctrl+Enter` sends a chat message, and `Delete` on the document list opens a deletion confirmation.
 
 ### Local network access
 
@@ -72,7 +82,7 @@ Archive root/
   outbox/                      # Desktop-owned capture events; removed only after acknowledgement
 ```
 
-The scan timestamp is separate from any date found in the document. Split children inherit that timestamp and retain the parent ID and original page range. There is no automatic archive-directory crawling. Existing files enter through explicit web upload or the one-time manual legacy import command; when no capture event exists, their filesystem creation time is used as a fallback, which may be inaccurate after copying. Exact byte duplicates share one document record; individual capture events retain their own scan time, device and source. Events are idempotent even after an agent renames the file. Metadata is available in the document details and as JSON beside the library; page checkpoints survive API failures.
+The scan timestamp is separate from any date found in the document. Split children inherit that timestamp and retain the parent ID and original page range. There is no automatic archive-directory crawling. Existing files enter through the native file picker, explicit web upload or the one-time manual legacy import command; when no capture event exists, their filesystem creation time is used as a fallback, which may be inaccurate after copying. Exact byte duplicates share one document record; individual capture events retain their own scan time, device and source. Events are idempotent even after an agent renames the file. Metadata is available in the document details and as JSON beside the library; page checkpoints survive API failures.
 
 **Back up both the archive root and the local Secretary data directory**, with the service stopped for a consistent database copy. Keeping originals on the same drive is recovery protection, not an independent backup. DPAPI secrets are bound to the Windows account: configure the API key again after migration. JSON exports preserve content and provenance, but a complete automated database restore from sidecars is not yet implemented.
 
@@ -89,7 +99,9 @@ dotnet test ScanArchive.Server.Tests -c Release
 .\dist\ScanArchive.exe --self-test
 ```
 
-Automated tests use synthetic PDFs and a mocked OpenAI transport. They cover analysis-before-organization, metadata persistence, Chinese/identifier retrieval, embedding outages, scan provenance after splitting, moves/undo, path boundaries, verified citations and daily scheduling. These tests do **not** measure real-model OCR or retrieval quality. Real API behavior, cost and document accuracy must be evaluated with your own key and representative scans. Handwriting, clipping and tiny text can still be misread; review important results against the page preview.
+Automated tests use synthetic PDFs and a mocked OpenAI transport. Native IPC tests also cover shared conversations, settings validation, reversible management, and browsing while a search is in flight. Mixed-page retrieval tests prevent global document tags from being mistaken for evidence on every page; interrupted index rebuilds retain the previous index. They cover analysis-before-organization, metadata persistence, Chinese/identifier retrieval, embedding outages, scan provenance after splitting, moves/undo, path boundaries, verified citations and daily scheduling. These tests do **not** measure real-model OCR or retrieval quality. Real API behavior, cost and document accuracy must be evaluated with your own key and representative scans. Handwriting, clipping and tiny text can still be misread; review important results against the page preview.
+
+Page indexes use only that page’s content and analysis. Overall metadata is a low-weight discovery fallback, with an explicit instruction to verify the actual page. Existing indexes upgrade once without repeating page vision analysis.
 
 The semantic search implementation currently scores vectors in process; large libraries will eventually need a dedicated approximate-nearest-neighbor index. A request-count limit is not a dollar spending cap. The agent has a bounded number of tool steps per run, so very large reorganizations may need another wake-up.
 

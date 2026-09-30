@@ -22,7 +22,7 @@ builder.Services.AddSingleton(settings);
 builder.Services.AddSingleton<Database>();builder.Services.AddSingleton<Documents>();builder.Services.AddSingleton<Search>();builder.Services.AddSingleton<Analyzer>();builder.Services.AddSingleton<SecretaryAgent>();
 builder.Services.AddHttpClient<OpenAi>(http=>http.Timeout=TimeSpan.FromMinutes(4));
 builder.Services.AddSingleton<Worker>();builder.Services.AddHostedService(sp=>sp.GetRequiredService<Worker>());
-builder.Services.AddSingleton<CaptureCoordinator>();builder.Services.AddHostedService<DesktopBridge>();
+builder.Services.AddSingleton<DesktopCommands>();builder.Services.AddSingleton<CaptureCoordinator>();builder.Services.AddHostedService<DesktopBridge>();
 builder.Services.AddDataProtection().PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(settings.DataRoot,"keys"))).ProtectKeysWithDpapi();
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme).AddCookie(options=>{
     options.Cookie.Name="scanarchive_session";options.Cookie.HttpOnly=true;options.Cookie.SameSite=SameSiteMode.Strict;
@@ -135,12 +135,8 @@ api.MapPost("/maintenance",(Documents docs)=>new{job=docs.Enqueue("review","manu
 api.MapPost("/discover",async(Worker worker,CancellationToken ct)=>new{found=await worker.Discover(ct)});
 api.MapGet("/conversations",(Database db)=>db.Rows("SELECT * FROM conversations ORDER BY created DESC"));
 api.MapGet("/conversations/{id}",(string id,Database db)=>new{messages=db.Rows("SELECT role,text,created FROM messages WHERE conversation=$i ORDER BY id",("$i",id)),jobs=db.Rows("SELECT status,error FROM jobs WHERE kind='chat' AND payload=$i ORDER BY created DESC LIMIT 1",("$i",id))});
-api.MapPost("/chat",(JsonObject body,Database db,Documents docs)=>{
-    string text=body.S("message");if(text.Length is < 1 or > 16000)throw new ArgumentException("消息应为 1 至 16000 字。");
-    string id=body.S("conversation");if(id==""){id=Guid.NewGuid().ToString("N");db.Exec("INSERT INTO conversations VALUES($i,$t,$d)",("$i",id),("$t",text[..Math.Min(60,text.Length)]),("$d",Database.Now));}
-    else if(db.Rows("SELECT id FROM conversations WHERE id=$i",("$i",id)).Count==0)throw new ArgumentException("会话不存在。");
-    if(db.Rows("SELECT id FROM jobs WHERE kind='chat' AND payload=$i AND status IN ('pending','running')",("$i",id)).Count>0)throw new ArgumentException("Agent 正在处理此会话，请等待本次完成。");
-    db.Exec("INSERT INTO messages(conversation,role,text,created) VALUES($c,'user',$t,$d)",("$c",id),("$t",text),("$d",Database.Now));return new{conversation=id,job=docs.Enqueue("chat",id)};
+api.MapPost("/chat",async(JsonObject body,DesktopCommands desktop,CancellationToken ct)=>{
+    body["command"]="chat";body["id"]=body.S("conversation");return await desktop.Handle(body,ct);
 });
 api.MapGet("/memories",(Database db)=>db.Rows("SELECT * FROM memories ORDER BY created DESC"));
 api.MapDelete("/memories/{id}",(string id,Database db)=>{db.Exec("DELETE FROM memories WHERE id=$i",("$i",id));return Results.Ok();});

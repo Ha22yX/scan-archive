@@ -81,6 +81,10 @@ static class SecretaryIntegration
         }
         throw new IOException("文档库核心未能启动，请检查服务日志。");
     }
+    public static Task<JsonObject> Command(string command, JsonObject? values=null, CancellationToken ct=default)
+    {
+        values??=new();values["command"]=command;return DesktopProtocol.Request(DataRoot,values,ct);
+    }
     public static async Task OpenPanel()
     {
         await EnsureStarted();Process.Start(new ProcessStartInfo("http://localhost:5278"){UseShellExecute=true});

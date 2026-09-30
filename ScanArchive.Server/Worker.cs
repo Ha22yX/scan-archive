@@ -17,6 +17,10 @@ public sealed class Worker(AppSettings settings,Database db,Documents docs,Analy
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         docs.RecoverMoves();
+        if(db.State("page_index_version")!="2"){
+            foreach(var doc in db.Rows("SELECT DISTINCT d.id FROM documents d JOIN chunks c ON c.doc_id=d.id WHERE d.status<>'deleted'"))docs.Enqueue("reindex",doc.S("id"));
+            db.State("page_index_version","2");
+        }
         while(!stoppingToken.IsCancellationRequested)
         {
             try
