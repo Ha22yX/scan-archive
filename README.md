@@ -70,6 +70,10 @@ The agent can inspect and search documents, read pages, create categories, move/
 
 ### Storage and traceability
 
+When archived child documents cover every page of a split batch exactly once, the batch leaves the normal library, search results and document counts automatically. Incomplete or overlapping splits keep their source visible. Original scans remain available through **View original scan** on a child document for traceability; deleting a child makes the source batch visible again.
+
+Background processing defaults to **3 documents at once**, with **2 concurrent page analyses per document**. Both limits are adjustable in desktop and web settings. Completed page analyses are checkpointed and reused after interruption or splitting. OpenAI requests share an eight-request concurrency cap. A separate, serial agent queue handles organization and conversations alongside analysis, keeping filesystem changes ordered. Actual throughput depends on document size, model latency and API rate limits.
+
 ```text
 Archive root/
   Inbox/                       # Newly captured/imported files

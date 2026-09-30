@@ -10,20 +10,21 @@ public sealed class Analyzer(AppSettings settings,Database db,Documents document
         var doc=db.Doc(id)??throw new KeyNotFoundException("文件不存在。");
         db.Exec("UPDATE documents SET status='analyzing',error='' WHERE id=$i",("$i",id));
         int count=documents.PageCount(doc);db.Exec("UPDATE documents SET page_count=$n WHERE id=$i",("$n",count),("$i",id));
-        for(int page=1;page<=count;page++)
+        await Parallel.ForEachAsync(Enumerable.Range(1,count),new ParallelOptions{MaxDegreeOfParallelism=settings.Current.PageConcurrency,CancellationToken=ct},async(page,pageToken)=>
         {
             // Completed pages are durable checkpoints; a retry doesn't pay for them again.
-            if(db.Rows("SELECT number FROM pages WHERE doc_id=$i AND number=$p",("$i",id),("$p",page)).Count>0)continue;
+            if(db.Rows("SELECT number FROM pages WHERE doc_id=$i AND number=$p",("$i",id),("$p",page)).Count>0)return;
             byte[] png=documents.PageImage(doc,page);
             var schema=OpenAi.Schema(("text","string"),("summary","string"),("topics","string"),("entities","string"),("dates_and_numbers","string"),("document_title","string"),("readability","string"));
             var result=await ai.Structured(DataRule,new JsonArray(
                 new JsonObject{["type"]="input_text",["text"]=$"Analyze page {page} of {count}. Transcribe ALL visible text into text (use markdown for tables and preserve formulas). summary must be readable Markdown with short headings and bullet lists, and comprehensively cover all sections and what this page can answer, not only a vague sentence. topics should include specific concepts, bilingual aliases and searchable phrases. entities covers people, organizations, products and identifiers. dates_and_numbers preserves important exact values. readability records uncertainty and suspected clipping. document_title is the title this page belongs to. Do not treat scan date as document date."},
-                new JsonObject{["type"]="input_image",["image_url"]="data:image/png;base64,"+Convert.ToBase64String(png),["detail"]="high"}),schema,"page_analysis",ct);
+                new JsonObject{["type"]="input_image",["image_url"]="data:image/png;base64,"+Convert.ToBase64String(png),["detail"]="high"}),schema,"page_analysis",pageToken);
             db.Exec("INSERT INTO pages(doc_id,number,text,summary) VALUES($d,$p,$t,$s)",("$d",id),("$p",page),("$t",result.S("text")),("$s",result.ToJsonString()));
             db.Exec("INSERT OR REPLACE INTO analyses VALUES($d,$p,$m,$t)",("$d",id),("$p",page),("$m",settings.Current.Model),("$t",Database.Now));
             documents.WriteMetadata(id);
-            db.Log("analysis",$"{doc.S("title")}：已分析 {page}/{count} 页");
-        }
+            int completed=db.Rows("SELECT count(*) n FROM pages WHERE doc_id=$i",("$i",id))[0].I("n");
+            db.Log("analysis",$"{doc.S("title")}：已完成 {completed}/{count} 页（第 {page} 页）");
+        });
         var pages=db.Rows("SELECT number,summary FROM pages WHERE doc_id=$i ORDER BY number",("$i",id));
         // Keep every page represented. Summarize groups for long documents instead of truncating late pages.
         var outlines=new List<string>();

@@ -36,12 +36,12 @@ public sealed class FakeApi:HttpMessageHandler
 {
     public int PageCalls,MetadataCalls,EmbeddingCalls;
     public bool EmbeddingsFail,EmptyFormattedSummary;
-    public TaskCompletionSource? EmbeddingEntered,ReleaseEmbedding;
+    public TaskCompletionSource? EmbeddingEntered,ReleaseEmbedding,ReleasePages;
     public readonly List<JsonObject> Requests=[];
     public readonly Queue<JsonObject> AgentResponses=[];
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,CancellationToken ct)
     {
-        var body=JsonNode.Parse(await request.Content!.ReadAsStringAsync(ct))!.AsObject();Requests.Add(body);
+        var body=JsonNode.Parse(await request.Content!.ReadAsStringAsync(ct))!.AsObject();lock(Requests)Requests.Add(body);
         JsonObject result;
         if(request.RequestUri!.AbsolutePath.EndsWith("embeddings"))
         {
@@ -55,7 +55,7 @@ public sealed class FakeApi:HttpMessageHandler
             if(name=="format_summary")value=new(){["summary"]=EmptyFormattedSummary?"":"### 重要信息\n\n- **凭证**：INV-00317\n- 保修期 24 个月"};
             else if(name=="page_analysis")
             {
-                PageCalls++;value=new(){["text"]=$"第 {PageCalls} 页 运动学 velocity 发票编号 INV-00317 保修 warranty",["summary"]="详细描述位移速度计算和保修信息",["topics"]="物理,运动学,velocity,warranty",["entities"]="Brother",["dates_and_numbers"]="INV-00317 775km",["document_title"]="练习资料",["readability"]="清晰"};
+                int pageCall=Interlocked.Increment(ref PageCalls);if(ReleasePages!=null)await ReleasePages.Task.WaitAsync(ct);value=new(){["text"]=$"第 {pageCall} 页 运动学 velocity 发票编号 INV-00317 保修 warranty",["summary"]="详细描述位移速度计算和保修信息",["topics"]="物理,运动学,velocity,warranty",["entities"]="Brother",["dates_and_numbers"]="INV-00317 775km",["document_title"]="练习资料",["readability"]="清晰"};
             }
             else {MetadataCalls++;value=new(){["title"]="运动学与保修资料",["summary"]="包含两份独立资料，运动学计算与设备保修证明。",["tags"]="位移,速度,velocity,保修,warranty,INV-00317",["document_date"]="",["mixed_content"]=true};}
             result=Message(value.ToJsonString());

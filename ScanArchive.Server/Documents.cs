@@ -12,6 +12,8 @@ namespace ScanArchive.Server;
 
 public sealed class Documents(AppSettings settings, Database db)
 {
+    readonly System.Collections.Concurrent.ConcurrentDictionary<string,object> metadataLocks=new();
+    static readonly object PdfGate=new();
     public readonly SemaphoreSlim Mutation = new(1,1);
     public string Root => Path.GetFullPath(settings.Current.LibraryRoot);
     public static readonly HashSet<string> Extensions = new(StringComparer.OrdinalIgnoreCase){".pdf",".png",".jpg",".jpeg"};
@@ -42,7 +44,7 @@ public sealed class Documents(AppSettings settings, Database db)
         if(parts.Length==0 || parts.Length>6 || parts.Any(x=>x is "." or ".." || x.StartsWith('.'))) throw new ArgumentException("分类应为 1 至 6 层有效目录。");
         string category=string.Join('/',parts.Select(Clean)); SafePath("Library/"+category); return category;
     }
-    public async Task<string> Import(string path,string? scanned = null,string parentId="",CancellationToken ct=default)
+    public async Task<string> Import(string path,string? scanned = null,string parentId="",CancellationToken ct=default,bool enqueue=true)
     {
         path=Path.GetFullPath(path);
         string relative=Path.GetRelativePath(Root,path); SafePath(relative);
@@ -68,27 +70,34 @@ public sealed class Documents(AppSettings settings, Database db)
                 ("$i",id),("$h",hash),("$p",path),("$o",original),("$t",Path.GetFileNameWithoutExtension(path)),("$s",scanned??File.GetCreationTimeUtc(path).ToString("O")),("$c",Database.Now),("$parent",parentId));
             try { db.Exec("UPDATE documents SET page_count=$n WHERE id=$i",("$n",PageCount(db.Doc(id)!)),("$i",id)); }
             catch(Exception ex) { db.Log("preview",ex.Message); }
-            WriteMetadata(id);Enqueue("index",id); db.Log("import","已接收文件："+Path.GetFileName(path)); return id;
+            WriteMetadata(id);if(enqueue)Enqueue("index",id); db.Log("import","已接收文件："+Path.GetFileName(path)); return id;
         }
         finally{Mutation.Release();}
     }
     public string Enqueue(string kind,string payload)
     {
-        if(kind is "index" or "organize" or "embeddings" or "reindex" or "format_summary" && db.Doc(payload)?.S("status")=="deleted")throw new InvalidOperationException("请先从回收站恢复此文件。");
-        var old=db.Rows("SELECT id FROM jobs WHERE kind=$k AND payload=$p AND status IN ('pending','running')",("$k",kind),("$p",payload)).FirstOrDefault();
-        if(old!=null)return old.S("id");
-        string id=Guid.NewGuid().ToString("N");
-        db.Exec("INSERT INTO jobs(id,kind,payload,status,next_run,created,updated) VALUES($id,$k,$p,'pending',$t,$t,$t)",("$id",id),("$k",kind),("$p",payload),("$t",Database.Now));return id;
+        if(kind is "index" or "organize" or "embeddings" or "reindex" or "format_summary" or "reanalyze" && db.Doc(payload)?.S("status") is "deleted" or "superseded")throw new InvalidOperationException("此文档已删除或已由拆分文件替代。");
+        string id="";
+        db.Transaction((c,tx)=>{
+            using var cmd=c.CreateCommand();cmd.Transaction=tx;
+            cmd.CommandText="SELECT id FROM jobs WHERE kind=$k AND payload=$p AND status IN ('pending','running') LIMIT 1";
+            cmd.Parameters.AddWithValue("$k",kind);cmd.Parameters.AddWithValue("$p",payload);
+            var existing=cmd.ExecuteScalar();if(existing!=null){id=existing.ToString()!;return;}
+            id=Guid.NewGuid().ToString("N");cmd.CommandText="INSERT INTO jobs(id,kind,payload,status,next_run,created,updated) VALUES($id,$k,$p,'pending',$t,$t,$t)";
+            cmd.Parameters.AddWithValue("$id",id);cmd.Parameters.AddWithValue("$t",Database.Now);cmd.ExecuteNonQuery();
+        });return id;
     }
-    public JsonArray Folders() => new(db.Rows("SELECT category,count(*) count FROM documents WHERE status<>'deleted' AND category<>'' GROUP BY category ORDER BY category").Select(x=>(JsonNode)x).ToArray());
+
+    public JsonArray Folders() => new(db.Rows("SELECT category,count(*) count FROM documents WHERE status NOT IN ('deleted','superseded') AND category<>'' GROUP BY category ORDER BY category").Select(x=>(JsonNode)x).ToArray());
     public async Task<JsonObject> Move(string id,string title,string category,string reason,bool locked=false,CancellationToken ct=default)
     {
         await Mutation.WaitAsync(ct);
         try
         {
             var doc=db.Doc(id)??throw new KeyNotFoundException("文档不存在");
-            if(doc.S("status")=="deleted")throw new InvalidOperationException("文档已在回收站。");
+            if(doc.S("status") is "deleted" or "superseded")throw new InvalidOperationException("此文档已删除或已由拆分文件替代，请操作独立文档。");
             if(doc.I("locked")==1 && !locked) throw new InvalidOperationException("此文件的分类已由用户锁定。");
+            if(doc.S("status") is "analyzing" or "indexing")throw new InvalidOperationException("请等待内容分析完成后再调整归档。");
             title=Clean(title); category=Category(category);
             string destination=SafePath("Library/"+category+"/"+title+"__"+id[..8]+Path.GetExtension(doc.S("path")));
             if(string.Equals(destination,doc.S("path"),StringComparison.OrdinalIgnoreCase)){
@@ -139,6 +148,8 @@ public sealed class Documents(AppSettings settings, Database db)
         }finally{Mutation.Release();}
     }
     public int PageCount(JsonObject doc)
+    {lock(PdfGate)return PageCountCore(doc);}
+    int PageCountCore(JsonObject doc)
     {
         if(!doc.S("original").EndsWith(".pdf",StringComparison.OrdinalIgnoreCase))return 1;
         using var reader=DocLib.Instance.GetDocReader(File.ReadAllBytes(doc.S("original")),new PageDimensions(1200,1600));return reader.GetPageCount();
@@ -169,6 +180,10 @@ public sealed class Documents(AppSettings settings, Database db)
     }
     public void WriteMetadata(string id)
     {
+        lock(metadataLocks.GetOrAdd(id,_=>new object()))WriteMetadataCore(id);
+    }
+    void WriteMetadataCore(string id)
+    {
         var doc=db.Doc(id)??throw new KeyNotFoundException();
         var pages=db.Rows("SELECT number,text,summary FROM pages WHERE doc_id=$i ORDER BY number",("$i",id));
         foreach(var page in pages) { page["analysis"]=JsonNode.Parse(page.S("summary"));page.Remove("summary"); }
@@ -180,6 +195,8 @@ public sealed class Documents(AppSettings settings, Database db)
         string file=Path.Combine(directory,id+".json");File.WriteAllText(file+".tmp",data.ToJsonString(AppSettings.Json));File.Move(file+".tmp",file,true);
     }
     public byte[] PageImage(JsonObject doc,int number)
+    {lock(PdfGate)return PageImageCore(doc,number);}
+    byte[] PageImageCore(JsonObject doc,int number)
     {
         if(number<1)throw new ArgumentException("页码错误。");
         if(!doc.S("original").EndsWith(".pdf",StringComparison.OrdinalIgnoreCase))
@@ -216,10 +233,46 @@ public sealed class Documents(AppSettings settings, Database db)
         if(pages.Count==0||pages.Distinct().Count()!=pages.Count)throw new ArgumentException("页码不能为空或重复。");
         return pages.ToArray();
     }
+    public async Task ReconcileSplitBatches(CancellationToken ct=default)
+    {
+        await Mutation.WaitAsync(ct);
+        try
+        {
+            foreach(var parent in db.Rows("SELECT * FROM documents WHERE status IN ('ready','superseded') AND EXISTS (SELECT 1 FROM documents child WHERE child.parent_id=documents.id) ORDER BY created DESC"))
+            {
+                ct.ThrowIfCancellationRequested();
+                string id=parent.S("id");bool hidden=parent.S("status")=="superseded";
+                // A source batch stays visible until its own organization has finished.
+                if(!hidden&&db.Rows("SELECT id FROM jobs WHERE payload=$i AND status IN ('pending','running')",("$i",id)).Count>0)continue;
+                var children=db.Rows("SELECT * FROM documents WHERE parent_id=$i AND status<>'deleted'",("$i",id));
+                int count=parent.I("page_count");var covered=new HashSet<int>();
+                bool complete=children.Count>=2&&count>0&&File.Exists(parent.S("original"));
+                foreach(var child in children)
+                {
+                    if(!complete)break;
+                    if(child.S("status") is not ("ready" or "superseded")||!File.Exists(child.S("original"))||!File.Exists(child.S("path"))){complete=false;break;}
+                    try
+                    {
+                        var pages=ParsePages(child.S("source_pages"),count);
+                        // Validate physical outputs before hiding a batch, not just AI assertions.
+                        if(pages.Length!=child.I("page_count")||(!hidden&&PageCount(child)!=pages.Length)){complete=false;break;}
+                        foreach(int page in pages)if(!covered.Add(page)){complete=false;break;}
+                    }
+                    catch(Exception ex)when(ex is ArgumentException or IOException or InvalidDataException){complete=false;}
+                }
+                complete&=covered.Count==count;
+                if(complete==hidden)continue;
+                db.Exec("UPDATE documents SET status=$s WHERE id=$i",("$s",complete?"superseded":"ready"),("$i",id));
+                WriteMetadata(id);
+                db.Log("split",complete?$"已验证 {count} 页完整拆分，原始合集已从文档库隐藏：{parent.S("title")}":$"拆分文件不再完整可用，已恢复原始合集以免遗漏：{parent.S("title")}");
+            }
+        }
+        finally{Mutation.Release();}
+    }
     public async Task<string> ExtractPages(string id,string selection,string title,CancellationToken ct)
     {
         var doc=db.Doc(id)??throw new KeyNotFoundException();
-        if(doc.S("status")=="deleted")throw new InvalidOperationException("文档已在回收站。");
+        if(doc.S("status") is "deleted" or "superseded")throw new InvalidOperationException("此文档已删除或已由拆分文件替代，请操作独立文档。");
         if(!doc.S("original").EndsWith(".pdf",StringComparison.OrdinalIgnoreCase))throw new ArgumentException("只有 PDF 可拆分页。");
         using var source=PdfReader.Open(doc.S("original"),PdfDocumentOpenMode.Import);
         int[] pages=ParsePages(selection,source.PageCount);
@@ -230,14 +283,14 @@ public sealed class Documents(AppSettings settings, Database db)
         if(existing!=null)return existing.S("id");
         string path=SafePath("Inbox/"+Clean(title)+"__"+Guid.NewGuid().ToString("N")[..8]+".pdf");Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         using(var output=new PdfDocument()){foreach(int p in pages)output.AddPage(source.Pages[p-1]);output.Save(path);}
-        string child=await Import(path,doc.S("scanned"),id,ct);
+        string child=await Import(path,doc.S("scanned"),id,ct,enqueue:false);
         db.Exec("UPDATE documents SET source_pages=$p WHERE id=$i",("$p",pageMap),("$i",child));
         // The bytes of each extracted page are unchanged, so reuse its completed analysis.
         for(int index=0;index<pages.Length;index++)
         {
             db.Exec("INSERT OR IGNORE INTO pages(doc_id,number,text,summary) SELECT $child,$n,text,summary FROM pages WHERE doc_id=$parent AND number=$p; INSERT OR IGNORE INTO analyses(doc_id,page,model,analyzed_at) SELECT $child,$n,model,analyzed_at FROM analyses WHERE doc_id=$parent AND page=$p",("$child",child),("$n",index+1),("$parent",id),("$p",pages[index]));
         }
-        WriteMetadata(child);
+        WriteMetadata(child);Enqueue("index",child);
         db.Log("split",$"{doc.S("title")} 第 {pageMap} 页已生成独立文件，原文件保留。");return child;
     }
 }

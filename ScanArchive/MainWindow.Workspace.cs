@@ -186,6 +186,7 @@ public sealed partial class MainWindow
         void Add(string title,Func<Task> action)=>menu.Items.Add(title,null,async(_,_)=>await RunUi(action));
         Add("打开原件",()=>{OpenSelected();return Task.CompletedTask;});
         Add("在文件夹中显示",()=>{if(selectedDocument!=null)Open(Path.GetDirectoryName(S(selectedDocument,"path"))!);return Task.CompletedTask;});
+        Add("查看原始扫描",async()=>{string parent=S(selectedDocument,"parent_id");if(parent==""){status.Text="当前文档就是原始扫描。";return;}await SelectDocument(new JsonObject{["id"]=parent});status.Text="正在查看后台保留的原始扫描";});
         Add("修改标题和分类…",EditSelected);Add("询问秘书",()=>{AskAboutSelected();return Task.CompletedTask;});Add("允许秘书重新调整分类",()=>DocumentAction("unlock"));
         menu.Items.Add(new ToolStripSeparator());Add("移入回收站",DeleteSelected);return menu;
     }

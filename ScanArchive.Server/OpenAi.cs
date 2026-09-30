@@ -7,8 +7,14 @@ namespace ScanArchive.Server;
 
 public sealed class OpenAi(AppSettings settings, Database db, HttpClient http)
 {
+    static readonly SemaphoreSlim RequestSlots=new(8,8);
     public bool Available => !string.IsNullOrWhiteSpace(settings.ApiKey);
     public async Task<JsonObject> Post(string endpoint, JsonObject request, CancellationToken ct)
+    {
+        await RequestSlots.WaitAsync(ct);
+        try{return await PostCore(endpoint,request,ct);}finally{RequestSlots.Release();}
+    }
+    async Task<JsonObject> PostCore(string endpoint,JsonObject request,CancellationToken ct)
     {
         if (!Available) throw new InvalidOperationException("请先在设置中填写 OpenAI API Key。");
         for (int attempt = 0; ; attempt++)

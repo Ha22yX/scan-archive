@@ -16,7 +16,7 @@ public sealed class DesktopCommands(AppSettings settings, Database db, Documents
         switch (r.S("command"))
         {
             case "browse":
-                string filter = "WHERE status<>'deleted' AND ($c='' OR category=$c OR substr(category,1,length($c)+1)=$c||'/') AND ($s='' OR status=$s)";
+                string filter = "WHERE status NOT IN ('deleted','superseded') AND ($c='' OR category=$c OR substr(category,1,length($c)+1)=$c||'/') AND ($s='' OR status=$s)";
                 var args = new (string, object?)[] { ("$c", r.S("category")), ("$s", r.S("status")) };
                 return new() {
                     ["documents"] = Rows(db.Rows("SELECT id,title,original,path,scanned,status,category,error,page_count,summary,locked,parent_id,source_pages FROM documents " + filter + " ORDER BY scanned DESC,id LIMIT 60 OFFSET $o", args.Append(("$o", (object?)Math.Max(0,r.I("offset")))).ToArray())),
@@ -29,7 +29,7 @@ public sealed class DesktopCommands(AppSettings settings, Database db, Documents
             case "document":
                 return new() { ["document"] = db.Doc(id) ?? throw new KeyNotFoundException("文档不存在。"),
                     ["pages"] = Rows(db.Rows("SELECT number,text,summary FROM pages WHERE doc_id=$i ORDER BY number", ("$i",id))),
-                    ["children"] = Rows(db.Rows("SELECT id,title,source_pages FROM documents WHERE parent_id=$i AND status<>'deleted'", ("$i",id))) };
+                    ["children"] = Rows(db.Rows("SELECT id,title,source_pages FROM documents WHERE parent_id=$i AND status NOT IN ('deleted','superseded')", ("$i",id))) };
             case "restore": await docs.Restore(id,ct); return new() { ["ok"] = true };
             case "move": return await docs.Move(id,r.S("title"),r.S("category"),"桌面手动调整",true,ct);
             case "unlock":
@@ -71,7 +71,7 @@ public sealed class DesktopCommands(AppSettings settings, Database db, Documents
                     throw new ArgumentException("文档库已有文件，不能直接改目录。请先迁移文档库及数据，避免失去关联。");
                 bool changed=options.EmbeddingModel!=settings.Current.EmbeddingModel;
                 settings.Save(options);settings.SaveApiKey(r.S("apiKey"));
-                if(changed)foreach(var doc in db.Rows("SELECT id FROM documents WHERE status<>'deleted'"))docs.Enqueue("embeddings",doc.S("id"));
+                if(changed)foreach(var doc in db.Rows("SELECT id FROM documents WHERE status NOT IN ('deleted','superseded')"))docs.Enqueue("embeddings",doc.S("id"));
                 return new(){["ok"]=true};
             case "import":
                 // User-selected native file picker, not background directory discovery.

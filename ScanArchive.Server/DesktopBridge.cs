@@ -16,7 +16,7 @@ public sealed class CaptureCoordinator(AppSettings settings,Database db,Document
         {
             case "register_scan":return await Register(request,ct);
             case "library":
-                return new(){["root"]=settings.Current.LibraryRoot,["documents"]=new JsonArray(db.Rows("SELECT id,title,path,original,scanned,status,category,error,page_count FROM documents WHERE status<>'deleted' ORDER BY scanned DESC LIMIT 100 OFFSET $o",("$o",Math.Max(0,request.I("offset")))).Select(d=>(JsonNode)d).ToArray())};
+                return new(){["root"]=settings.Current.LibraryRoot,["documents"]=new JsonArray(db.Rows("SELECT id,title,path,original,scanned,status,category,error,page_count FROM documents WHERE status NOT IN ('deleted','superseded') ORDER BY scanned DESC LIMIT 100 OFFSET $o",("$o",Math.Max(0,request.I("offset")))).Select(d=>(JsonNode)d).ToArray())};
             case "trash":await docs.Trash(request.S("id"),ct);return new(){["ok"]=true};
             default:return commands==null?throw new ArgumentException("未知桌面命令。"):await commands.Handle(request,ct);
         }

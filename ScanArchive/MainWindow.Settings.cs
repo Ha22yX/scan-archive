@@ -13,6 +13,7 @@ public sealed partial class MainWindow
     readonly CheckBox feeder=new(){Text="自动进纸器（多页 PDF）",AutoSize=true},color=new(){Text="彩色扫描",Checked=true,AutoSize=true};
     readonly TextBox apiKey=new(){Dock=DockStyle.Fill,UseSystemPasswordChar=true,PlaceholderText="输入新密钥；留空保留现有密钥"};
     readonly TextBox model=new(){Dock=DockStyle.Fill},embeddingModel=new(){Dock=DockStyle.Fill},instructions=new(){Dock=DockStyle.Fill,Multiline=true,ScrollBars=ScrollBars.Vertical};
+    readonly NumericUpDown documentConcurrency=new(){Minimum=1,Maximum=6,Value=3,Dock=DockStyle.Fill},pageConcurrency=new(){Minimum=1,Maximum=4,Value=2,Dock=DockStyle.Fill};
     readonly NumericUpDown requestLimit=new(){Minimum=1,Maximum=100000,Value=1000,Dock=DockStyle.Fill},agentSteps=new(){Minimum=1,Maximum=50,Value=20,Dock=DockStyle.Fill};
     readonly DateTimePicker wakeTime=new(){Format=DateTimePickerFormat.Custom,CustomFormat="HH:mm",ShowUpDown=true,Dock=DockStyle.Fill};
     readonly CheckBox scheduledAgent=new(){Text="每日唤醒",AutoSize=true},autoAgent=new(){Text="每次扫描分析后自动整理",AutoSize=true};
@@ -32,6 +33,7 @@ public sealed partial class MainWindow
         wakeTime.Value=DateTime.Today.Add(TimeOnly.TryParse(S(prefs,"dailyWakeTime"),out var when)?when.ToTimeSpan():TimeSpan.FromHours(5));
         scheduledAgent.Checked=prefs["scheduleEnabled"]?.GetValue<bool>()??true;autoAgent.Checked=prefs["autoOrganize"]?.GetValue<bool>()??true;
         model.Text=S(prefs,"model")==""?"gpt-6-astra":S(prefs,"model");embeddingModel.Text=S(prefs,"embeddingModel")==""?"text-embedding-3-large":S(prefs,"embeddingModel");
+        documentConcurrency.Value=Math.Clamp(N(prefs,"documentConcurrency")==0?3:N(prefs,"documentConcurrency"),1,6);pageConcurrency.Value=Math.Clamp(N(prefs,"pageConcurrency")==0?2:N(prefs,"pageConcurrency"),1,4);
         instructions.Text=S(prefs,"instructions");requestLimit.Value=Math.Clamp(N(prefs,"dailyRequestLimit")==0?1000:N(prefs,"dailyRequestLimit"),1,100000);agentSteps.Value=Math.Clamp(N(prefs,"agentMaxSteps")==0?20:N(prefs,"agentMaxSteps"),1,50);
     }
     async Task ShowSettings()
@@ -58,6 +60,7 @@ public sealed partial class MainWindow
         var options=new FlowLayoutPanel{Dock=DockStyle.Fill};options.Controls.AddRange([color,feeder]);Add("纸张来源",options,null,60);
         Section("AI 文档秘书");Add("OpenAI API Key",apiKey,keyState);Add("分析 / Agent 模型",model);Add("检索嵌入模型",embeddingModel);
         Add("每日唤醒时间",wakeTime,scheduledAgent);Add("扫描后触发",autoAgent);Add("每日请求上限",requestLimit,new Label{Text="请求次数，非金额上限",AutoSize=true,ForeColor=Muted});Add("单次 Agent 步数",agentSteps);
+        Add("同时处理文档数",documentConcurrency,new Label{Text="默认 3 份 · 1–6",AutoSize=true,ForeColor=Muted});Add("单文件页面并发",pageConcurrency,new Label{Text="默认 2 页 · 1–4",AutoSize=true,ForeColor=Muted});
         Add("长期整理偏好",instructions,null,110);
         Section("远程访问");
         string addresses=string.Join("\n",NetworkInterface.GetAllNetworkInterfaces().Where(x=>x.OperationalStatus==OperationalStatus.Up).SelectMany(x=>x.GetIPProperties().UnicastAddresses).Where(x=>x.Address.AddressFamily==AddressFamily.InterNetwork&&!System.Net.IPAddress.IsLoopback(x.Address)).Select(x=>$"http://{x.Address}:5278"));
@@ -71,7 +74,7 @@ public sealed partial class MainWindow
         if(busy)throw new InvalidOperationException("请等待扫描结束。");
         if(!Path.IsPathFullyQualified(root.Text))throw new ArgumentException("请选择完整的归档目录。");
         var current=await SecretaryIntegration.Command("settings");var prefs=current["options"]!.DeepClone().AsObject();
-        prefs["libraryRoot"]=root.Text;prefs["model"]=model.Text.Trim();prefs["embeddingModel"]=embeddingModel.Text.Trim();prefs["dailyWakeTime"]=wakeTime.Value.ToString("HH:mm");prefs["scheduleEnabled"]=scheduledAgent.Checked;prefs["autoOrganize"]=autoAgent.Checked;prefs["dailyRequestLimit"]=(int)requestLimit.Value;prefs["agentMaxSteps"]=(int)agentSteps.Value;prefs["instructions"]=instructions.Text;
+        prefs["libraryRoot"]=root.Text;prefs["model"]=model.Text.Trim();prefs["embeddingModel"]=embeddingModel.Text.Trim();prefs["dailyWakeTime"]=wakeTime.Value.ToString("HH:mm");prefs["scheduleEnabled"]=scheduledAgent.Checked;prefs["autoOrganize"]=autoAgent.Checked;prefs["dailyRequestLimit"]=(int)requestLimit.Value;prefs["agentMaxSteps"]=(int)agentSteps.Value;prefs["instructions"]=instructions.Text;prefs["documentConcurrency"]=(int)documentConcurrency.Value;prefs["pageConcurrency"]=(int)pageConcurrency.Value;
         await SecretaryIntegration.Command("save_settings",new(){["options"]=prefs,["apiKey"]=apiKey.Text});SaveSettings();apiKey.Clear();keyState.Text=SecretaryIntegration.HasKey?"密钥已加密保存":"尚未配置密钥";status.Text="全部设置已保存，下次扫描和秘书任务将使用新设置。";
     }
 }

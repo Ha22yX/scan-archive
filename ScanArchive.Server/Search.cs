@@ -65,7 +65,7 @@ public sealed class Search(AppSettings settings,Database db,OpenAi ai)
     {
         query=query.Trim();if(query.Length==0)return new JsonObject{["results"]=new JsonArray(),["mode"]="empty"};
         if(query.Length>1000)throw new ArgumentException("搜索词过长。");limit=Math.Clamp(limit,1,40);
-        string filter=" WHERE d.status<>'deleted' AND ($cat='' OR d.category=$cat OR substr(d.category,1,length($cat)+1)=$cat||'/') AND ($from='' OR d.scanned >= $from) AND ($to='' OR substr(d.scanned,1,10)<=$to) ";
+        string filter=" WHERE d.status NOT IN ('deleted','superseded') AND ($cat='' OR d.category=$cat OR substr(d.category,1,length($cat)+1)=$cat||'/') AND ($from='' OR d.scanned >= $from) AND ($to='' OR substr(d.scanned,1,10)<=$to) ";
         var args=new (string,object?)[]{("$cat",category),("$from",from),("$to",to)};
         var hits=new Dictionary<long,(JsonObject row,double score)>();
         void Rank(IEnumerable<JsonObject> list,double weight){int rank=0;foreach(var row in list){long id=long.Parse(row.S("chunk_id"));rank++;if(!hits.ContainsKey(id))hits[id]=(row,0);hits[id]=(hits[id].row,hits[id].score+weight/(60+rank));}}
