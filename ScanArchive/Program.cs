@@ -13,7 +13,13 @@ static class Program
         ApplicationConfiguration.Initialize();
         if (Environment.GetCommandLineArgs().Contains("--self-test")) { SelfTest.Run(); return; }
         var args=Environment.GetCommandLineArgs();
-        if(args.Contains("--ui-smoke")){MainWindow.UiSmoke(args[Array.IndexOf(args,"--ui-smoke")+1]);return;}
+        if(args.Contains("--ui-smoke")){
+            string folder=args[Array.IndexOf(args,"--ui-smoke")+1];
+            try{MainWindow.UiSmoke(folder);}
+            catch(Exception ex){Directory.CreateDirectory(folder);File.WriteAllText(Path.Combine(folder,"ui-smoke.txt"),"FAIL: "+ex);Environment.ExitCode=1;}
+            return;
+        }
+        if(args.Contains("--demo")){Application.Run(new MainWindow(true));return;}
         using var instance=new Mutex(true,"Local\\ScanArchive.Desktop",out bool created);
         if(!created){MessageBox.Show("Scan Archive 已在运行，请从任务栏打开现有窗口。","Scan Archive");return;}
         Application.Run(new MainWindow());

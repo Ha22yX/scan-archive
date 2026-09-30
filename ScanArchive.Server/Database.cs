@@ -38,6 +38,7 @@ public sealed class Database
             """);
         Exec("UPDATE jobs SET status=CASE WHEN kind IN ('index','embeddings','reindex') THEN 'pending' ELSE 'failed' END,error='服务重启，任务未完成；已执行的整理操作保留。' WHERE status='running'");
     }
+    public JsonObject JobCounts()=>Rows("SELECT COALESCE(SUM(status='running'),0) running,COALESCE(SUM(status='pending'),0) pending,COALESCE(SUM(status='failed'),0) failed FROM jobs")[0];
     public List<JsonObject> Rows(string sql, params (string, object?)[] args)
     {
         lock (gate)

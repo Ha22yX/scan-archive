@@ -7,11 +7,12 @@ public sealed partial class MainWindow
     // Synthetic fixtures only. This mode never reads the library, starts the core or calls OpenAI.
     void LoadDemo()
     {
+        root.Text=@"C:\Documents\ScanArchive";
         connection.Text="● 演示文档库\n本机与远程同步";status.Text="准备就绪 · 放入纸张即可开始扫描";
         listTitle.Text="文档库 · 3 份";listHint.Text="1–3 / 3 · 所有文档已归档";
         var row=new JsonObject{["id"]="demo",["title"]="设备保修凭证",["status"]="ready",["category"]="生活 / 保修",["scanned"]="2026-09-29T15:24:00-04:00",["page_count"]=2,["summary"]="### 文件概览\n\n这份文件记录了设备的**购买信息**与保修条款。\n\n### 重要信息\n\n| 项目 | 内容 |\n| --- | --- |\n| 购买日期 | 2026-09-29 |\n| 保修期限 | 24 个月 |\n\n### 申请服务\n\n1. 准备购买凭证。\n2. 提供设备序列号。\n\n> 请保留原件，重要信息以原文为准。\n\n### 可以查询\n\n- 保修到期时间\n- 售后申请所需材料",["tags"]="设备、保修、购买凭证、warranty"};
         PopulateFiles(new JsonArray(row,new JsonObject{["id"]="demo2",["title"]="物理课堂笔记",["status"]="ready",["category"]="学习 / 物理"},new JsonObject{["id"]="demo3",["title"]="家庭资料清单",["status"]="ready",["category"]="生活 / 家庭"}),false);
-        selectedDocument=row;selectedId="demo";selectedPages=new();ApplyDetails(new JsonObject{["document"]=row.DeepClone(),["pages"]=new JsonArray()});
+        selectedDocument=row;selectedId="demo";files.Items[0].Selected=true;selectedPages=new();ApplyDetails(new JsonObject{["document"]=row.DeepClone(),["pages"]=new JsonArray()});
         var bitmap=new Bitmap(700,960);using(var g=Graphics.FromImage(bitmap)){
             g.Clear(Color.White);using var titleFont=new Font("Microsoft YaHei UI",25,FontStyle.Bold);using var bodyFont=new Font("Microsoft YaHei UI",16);using var ink=new SolidBrush(Ink);using var muted=new SolidBrush(Muted);using var accent=new SolidBrush(Accent);
             g.FillRectangle(accent,56,62,58,8);g.DrawString("设备保修凭证",titleFont,ink,56,103);g.DrawString("WARRANTY DOCUMENT  /  SAMPLE",bodyFont,muted,56,162);
@@ -30,10 +31,32 @@ public sealed partial class MainWindow
             if(form.files.Width<120||form.preview.Width<200||form.messageBox.Width<150||form.scan.Width<140)throw new Exception("Workspace controls are clipped.");
             using var image=new Bitmap(form.Width,form.Height);form.DrawToBitmap(image,new Rectangle(Point.Empty,form.Size));image.Save(Path.Combine(folder,$"desktop-{size.Width}.png"));
         }
-        form.Size=new Size(1500,920);form.inspector.SelectedIndex=1;Application.DoEvents();
-        using(var image=new Bitmap(form.Width,form.Height)){form.DrawToBitmap(image,new Rectangle(Point.Empty,form.Size));image.Save(Path.Combine(folder,"desktop-secretary.png"));}
-        form.ShowSettings().GetAwaiter().GetResult();Application.DoEvents();
-        using(var image=new Bitmap(form.Width,form.Height)){form.DrawToBitmap(image,new Rectangle(Point.Empty,form.Size));image.Save(Path.Combine(folder,"desktop-settings.png"));}
-        File.WriteAllText(Path.Combine(folder,"ui-smoke.txt"),"PASS: native workspace at 1500 and 1100 px; settings and secretary rendered; synthetic data only.");form.Close();
+        form.Size=new Size(1500,920);form.inspector.SelectedIndex=1;
+        string reply="### 找到了设备凭证\n\n保修期为 **24 个月**。\n\n| 项目 | 内容 |\n| --- | --- |\n| 购买日期 | 2026-09-29 |\n| 预计到期 | 2028-09-29 |\n\n申请售后请准备：\n\n1. 购买凭证\n2. 设备序列号\n\n[[aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:1]]";
+        var messages=new JsonArray(new JsonObject{["role"]="user",["text"]="设备凭证什么时候过保？"},new JsonObject{["role"]="assistant",["text"]=reply});
+        form.RenderChatMessages(messages,true);form.transcript.Select(0,0);form.transcript.ScrollToCaret();Application.DoEvents();
+        Capture("desktop-secretary.png");
+        messages.Add(new JsonObject{["role"]="assistant",["text"]=string.Join("\n\n",Enumerable.Repeat(reply,30))});form.RenderChatMessages(messages,true);
+        foreach(var size in new[]{new Size(1500,920),new Size(1100,700)}){
+            form.Size=size;Application.DoEvents();
+            var editor=form.RectangleToClient(form.messageBox.RectangleToScreen(form.messageBox.ClientRectangle));
+            var reader=form.RectangleToClient(form.transcript.RectangleToScreen(form.transcript.ClientRectangle));
+            var send=form.RectangleToClient(form.sendMessage.RectangleToScreen(form.sendMessage.ClientRectangle));
+            if(editor.Height<40||send.Bottom>form.ClientSize.Height||send.Top<0||reader.IntersectsWith(editor)||reader.IntersectsWith(send))throw new Exception("Long chat obscures the message composer.");
+            Capture($"desktop-long-chat-{size.Width}.png");
+        }
+        form.ShowSettings().GetAwaiter().GetResult();
+        foreach(var size in new[]{new Size(1500,920),new Size(1100,700)}){
+            form.Size=size;Application.DoEvents();
+            for(int section=0;section<3;section++){form.ShowSettingsSectionForDemo(section);Application.DoEvents();Capture($"desktop-settings-{section}-{size.Width}.png");}
+        }
+        form.ShowActivity().GetAwaiter().GetResult();Application.DoEvents();Capture("desktop-activity-compact.png");
+        void Capture(string name){using var image=new Bitmap(form.Width,form.Height);form.DrawToBitmap(image,new Rectangle(Point.Empty,form.Size));image.Save(Path.Combine(folder,name));}
+        form.selectedId="demo";form.previewPage=1;
+        form.PopulateFiles(new JsonArray(new JsonObject{["doc_id"]="demo",["title"]="命中第一页",["page"]=1},new JsonObject{["doc_id"]="demo",["title"]="命中第二页",["page"]=2}),true);
+        if(form.files.SelectedItems.Count!=1||N((JsonNode)form.files.SelectedItems[0].Tag!,"page")!=2)throw new Exception("Search selection restored the wrong source page.");
+        form.previewPath="previous.pdf";form.ResetDocumentPreview("加载新文档");
+        if(form.previewPath!=""||form.nextPage.Enabled||form.previousPage.Enabled||form.pageJump.Enabled)throw new Exception("Document switch retained old page actions.");
+        File.WriteAllText(Path.Combine(folder,"ui-smoke.txt"),"PASS: native workspace at 1500 and 1100 px; long Markdown chat preserves visible composer; all settings groups and activity rendered; synthetic data only.");form.Close();
     }
 }

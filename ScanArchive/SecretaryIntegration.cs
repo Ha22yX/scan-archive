@@ -70,14 +70,15 @@ static class SecretaryIntegration
     public static Task<JsonObject> Trash(string id)=>DesktopProtocol.Request(DataRoot,new JsonObject{["command"]="trash",["id"]=id});
     public static async Task EnsureStarted()
     {
-        using var client=new HttpClient{Timeout=TimeSpan.FromSeconds(2)};
-        try{var r=await client.GetAsync("http://localhost:5278/health");if(r.IsSuccessStatusCode)return;}catch(HttpRequestException){}catch(TaskCanceledException){}
+        using var client=new HttpClient(new HttpClientHandler{UseProxy=false}){Timeout=TimeSpan.FromSeconds(2)};
+        const string healthUrl="http://127.0.0.1:5278/health";
+        try{var r=await client.GetAsync(healthUrl);if(r.IsSuccessStatusCode)return;}catch(HttpRequestException){}catch(TaskCanceledException){}
         string exe=Path.Combine(AppContext.BaseDirectory,"server","ScanArchive.Server.exe");
         if(File.Exists(exe))Process.Start(new ProcessStartInfo(exe){WorkingDirectory=Path.GetDirectoryName(exe),UseShellExecute=false,CreateNoWindow=true,WindowStyle=ProcessWindowStyle.Hidden});
         for(int i=0;i<20;i++)
         {
             await Task.Delay(300);
-            try{var r=await client.GetAsync("http://localhost:5278/health");if(r.IsSuccessStatusCode)return;}catch(HttpRequestException){}catch(TaskCanceledException){}
+            try{var r=await client.GetAsync(healthUrl);if(r.IsSuccessStatusCode)return;}catch(HttpRequestException){}catch(TaskCanceledException){}
         }
         throw new IOException("文档库核心未能启动，请检查服务日志。");
     }

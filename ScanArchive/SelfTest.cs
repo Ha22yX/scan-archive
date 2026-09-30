@@ -1,4 +1,5 @@
 using PdfSharp.Pdf.IO;
+using System.Text.Json.Nodes;
 
 namespace ScanArchive;
 
@@ -17,6 +18,13 @@ static class SelfTest
                 markdown.Select(markdown.Text.IndexOf("关键内容",StringComparison.Ordinal),4);
                 if(markdown.SelectionFont?.Bold!=true)throw new Exception("Markdown emphasis was not rendered");
                 markdown.Width=240;if(!markdown.Text.Contains("保修"))throw new Exception("Markdown resize lost table content");
+            }
+            string citationId=new string('a',32);
+            var chat=MainWindow.FormatChatMessages(new JsonArray(new JsonObject{["role"]="user",["text"]="查找 **literal**"},new JsonObject{["role"]="assistant",["text"]=$"### 结果\n\n** 文件： ** 示例\n\n[[{citationId}:2]] 与 [[{citationId}:2]]\n[[{citationId}:99999999999999999999999]]"}));
+            if(chat.References.Count!=1||chat.References[0].Page!=2)throw new Exception("Chat citation deduplication or page validation failed");
+            using(var rendered=new MarkdownView{Width=320}){
+                rendered.SetMarkdown(chat.Markdown);if(!rendered.Text.Contains("**literal**")||!rendered.Text.Contains("原文 1 · 第 2 页")||rendered.Text.Contains("scanarchive-reference:"))throw new Exception("Chat Markdown lost literal user text or exposed citation URL");
+                rendered.Select(rendered.Text.IndexOf("文件：",StringComparison.Ordinal),3);if(rendered.SelectionFont?.Bold!=true)throw new Exception("Spaced Markdown bold label failed");
             }
             int attempts = 0, waits = 0;
             int transferred = Scanner.TransferWithRetry(() =>

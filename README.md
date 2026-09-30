@@ -44,7 +44,7 @@ The core starts with the desktop application. An interrupted handoff stays in th
 
 - **Capture and browse:** the scan button stays available across the app. The library shows processing states, category/status filters and batches of 60 documents. Background refresh preserves the selected document and preview page.
 - **Read and find:** search combines exact text, full-text and semantic retrieval. Selecting a match opens its page. Preview supports previous/next, direct page number entry and opening the original. PDF rendering runs off the UI thread.
-- **Readable document details:** native Markdown rendering supports headings, emphasis, lists, quotes, code and tables. New AI summaries use structured Markdown. Use **Markdown 整理** on an existing document to reformat its summary without rescanning; before/after revisions are preserved in SQLite and JSON metadata. Right-click the detail pane to copy Markdown. HTML and remote images are not executed or loaded.
+- **Readable document details:** native Markdown rendering supports headings, emphasis, lists, quotes, code and tables. New AI summaries use structured Markdown. Use **更多 → 整理概括排版** on an existing document to reformat its summary without rescanning; before/after revisions are preserved in SQLite and JSON metadata. Right-click the detail pane to copy Markdown. HTML and remote images are not executed or loaded.
 - **Ask your secretary:** use the side panel, optionally attach the selected document/page, resume existing conversations and click source references to preview them. Pending/running jobs remain visible while work continues in the background.
 - **Manage and recover:** change titles/categories, lock manual choices, unlock them for the agent, retry analysis, request organization, undo moves and restore trashed records.
 - **Shortcuts:** `Ctrl+F` focuses search, `F5` refreshes, `Ctrl+Enter` sends a chat message, and `Delete` on the document list opens a deletion confirmation.
@@ -52,6 +52,12 @@ The core starts with the desktop application. An interrupted handoff stays in th
 ### Local network access
 
 Use `http://<computer-IP>:5278` from another device on the same LAN and sign in with the same password. The service binds to all interfaces by default. If blocked, run `scripts/enable-lan.ps1` from an **administrator PowerShell**; it permits TCP 5278 only on private networks from the local subnet. Do not forward this port to the internet. The default transport is HTTP, intended for a trusted private network; remote access requires an authenticated HTTPS gateway configured separately.
+
+### A calmer workspace
+
+The desktop has resizable reading panes, two-line document titles, page zoom and a focused reading mode. Document summaries, current-page text and provenance have separate views. Settings are grouped by purpose, and the activity screen separates pending work, failures, reversible moves and the recycle bin.
+
+Both the desktop secretary and remote web panel render Markdown answers and keep the message composer separate from the scrolling conversation. Long answers do not push the send button off-screen. Page citations open the source, conversation drafts survive switching within the session, and new replies do not interrupt reading older messages. The web panel adapts to smaller screens. Refresh an existing browser tab after an application update to load the current interface.
 
 ## From paper to a searchable library
 
@@ -102,7 +108,11 @@ The scan timestamp is separate from any date found in the document. Split childr
 ```powershell
 dotnet test ScanArchive.Server.Tests -c Release
 .\dist\ScanArchive.exe --self-test
+.\dist\ScanArchive.exe --ui-smoke "$env:TEMP\scan-archive-ui-check"
 ```
+
+
+Web UI regression checks run against synthetic fixtures on an isolated local server. With Playwright and a Chromium browser available, run `node scripts/test-web-ui.cjs`. The test covers long Markdown answers, a visible composer on desktop and mobile layouts, source-page citations, conversation switching and safe rendering without real API calls. Set `PLAYWRIGHT_MODULE_PATH` or `SCANARCHIVE_BROWSER` if needed; screenshots and the test report go to a temporary directory.
 
 Automated tests use synthetic PDFs and a mocked OpenAI transport. Native IPC tests also cover shared conversations, settings validation, reversible management, and browsing while a search is in flight. Mixed-page retrieval tests prevent global document tags from being mistaken for evidence on every page; interrupted index rebuilds retain the previous index. They cover analysis-before-organization, metadata persistence, Chinese/identifier retrieval, embedding outages, scan provenance after splitting, moves/undo, path boundaries, verified citations and daily scheduling. These tests do **not** measure real-model OCR or retrieval quality. Real API behavior, cost and document accuracy must be evaluated with your own key and representative scans. Handwriting, clipping and tiny text can still be misread; review important results against the page preview.
 

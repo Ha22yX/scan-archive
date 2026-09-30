@@ -43,7 +43,8 @@ public sealed class DesktopCommands(AppSettings settings, Database db, Documents
             case "retry_analysis": return new(){["job"]=docs.Enqueue("index",id)};
             case "maintenance": return new(){["job"]=docs.Enqueue("review","manual:"+Guid.NewGuid().ToString("N"))};
             case "activity": return new(){
-                ["jobs"]=Rows(db.Rows("SELECT j.*,d.title document_title FROM jobs j LEFT JOIN documents d ON d.id=j.payload ORDER BY j.created DESC LIMIT 100")),
+                ["counts"]=db.JobCounts(),
+                ["jobs"]=Rows(db.Rows("SELECT j.*,d.title document_title FROM jobs j LEFT JOIN documents d ON d.id=j.payload ORDER BY CASE j.status WHEN 'running' THEN 0 WHEN 'pending' THEN 1 WHEN 'failed' THEN 2 ELSE 3 END,j.created DESC LIMIT 100")),
                 ["operations"]=Rows(db.Rows("SELECT * FROM operations ORDER BY created DESC LIMIT 100")),
                 ["trash"]=Rows(db.Rows("SELECT d.id,d.title,t.deleted_at FROM documents d JOIN trash t ON t.doc_id=d.id ORDER BY t.deleted_at DESC")),
                 ["activity"]=Rows(db.Rows("SELECT * FROM activity ORDER BY id DESC LIMIT 100"))};

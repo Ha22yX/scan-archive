@@ -7,6 +7,22 @@ namespace ScanArchive.Server.Tests;
 
 public class DesktopTests
 {
+    [Fact] public async Task ActivityPrioritizesUnfinishedJobsAndCountsTheWholeQueue()
+    {
+        var f=new LibraryFixture();
+        string old=f.Docs.Enqueue("review","old");
+        f.Db.Exec("UPDATE jobs SET created='2020-01-01' WHERE id=$i",("$i",old));
+        for(int i=0;i<105;i++)f.Docs.Enqueue("review","done-"+i);
+        f.Db.Exec("UPDATE jobs SET status='done' WHERE id<>$i",("$i",old));
+        var result=await Client(f).Handle(new(){["command"]="activity"},default);
+        Assert.Equal(1,result["counts"]!.I("pending"));
+        Assert.Equal(100,result["jobs"]!.AsArray().Count);
+        Assert.Contains(result["jobs"]!.AsArray(),x=>x!.S("id")==old);
+        f.Db.Exec("UPDATE jobs SET status='pending'");
+        result=await Client(f).Handle(new(){["command"]="activity"},default);
+        Assert.Equal(106,result["counts"]!.I("pending"));
+        Assert.Equal(100,result["jobs"]!.AsArray().Count);
+    }
     [Fact] public async Task MarkdownFormattingKeepsOriginalMetadataAndRevisionWithoutReanalyzingPages()
     {
         var f=new LibraryFixture();string id=await f.Docs.Import(f.Pdf());

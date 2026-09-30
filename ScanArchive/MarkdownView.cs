@@ -14,6 +14,15 @@ public sealed class MarkdownView : RichTextBox
     string markdown="";
     int renderedWidth;
     public string MarkdownSource=>markdown;
+    public bool IsAtEnd
+    {
+        get{
+            if(!IsHandleCreated||TextLength==0)return true;
+            var info=new ScrollInfo{Size=Marshal.SizeOf<ScrollInfo>(),Mask=7};
+            return !GetScrollInfo(Handle,1,ref info)||info.Position+(int)info.Page>=info.Maximum-32;
+        }
+    }
+    public void ScrollToEnd(){Select(TextLength,0);ScrollToCaret();}
     public MarkdownView()
     {
         ReadOnly=true;BorderStyle=BorderStyle.None;BackColor=Color.White;DetectUrls=false;
@@ -39,7 +48,9 @@ public sealed class MarkdownView : RichTextBox
         else {Select(0,0);ScrollToCaret();}
     }
     [StructLayout(LayoutKind.Sequential)]struct NativePoint{public int X,Y;}
+    [StructLayout(LayoutKind.Sequential)]struct ScrollInfo{public int Size,Mask,Minimum,Maximum;public uint Page;public int Position,TrackPosition;}
     [DllImport("user32.dll",CharSet=CharSet.Auto)]static extern IntPtr SendMessage(IntPtr window,int message,IntPtr wParam,ref NativePoint point);
+    [DllImport("user32.dll")]static extern bool GetScrollInfo(IntPtr window,int bar,ref ScrollInfo info);
 }
 
 internal static class MarkdownRtf
@@ -65,7 +76,7 @@ internal static class MarkdownRtf
                 o.Append('{').Append(emphasis.DelimiterChar=='~'?@"\strike ":emphasis.DelimiterCount>=2?@"\b ":@"\i ");Inline(o,emphasis);o.Append('}');break;
             case LinkInline link:
                 if(link.IsImage){Text(o,"[图片：");Inline(o,link);Text(o,"]");}
-                else{o.Append(@"{\ul\cf2 ");Inline(o,link);o.Append('}');if(!string.IsNullOrWhiteSpace(link.Url)){Text(o," (");Text(o,link.Url);Text(o,")");}}break;
+                else{o.Append(@"{\ul\cf2 ");Inline(o,link);o.Append('}');if(!string.IsNullOrWhiteSpace(link.Url)&&!link.Url.StartsWith("scanarchive-reference:",StringComparison.Ordinal)){Text(o," (");Text(o,link.Url);Text(o,")");}}break;
             case AutolinkInline link:Text(o,link.Url);break;
             case LineBreakInline line:o.Append(line.IsHard?@"\line ":" ");break;
             case HtmlInline html:Text(o,html.Tag);break;
