@@ -1,145 +1,103 @@
 <h1 align="center">Scan Archive</h1>
-
-<p align="center">Too much paper. Too much time spent searching.<br/>One click to scan, preview, and file your documents—one step toward a personal knowledge base.</p>
-
+<p align="center">Scan once. Keep the original. Let your document secretary make it findable.</p>
 <p align="center"><strong>English</strong> · <a href="README.zh-CN.md">简体中文</a></p>
+<p align="center">Windows · WIA / WIA 2.0 · OpenAI · Local document library</p>
 
-<p align="center">Windows desktop · C# / .NET 10 · WIA scanning · Local PDF preview</p>
+![The capture, analysis, organization and retrieval workflow](docs/readme-hero.svg)
 
-![Scan Archive workflow: paper, connected scanner, one-click capture, and timestamped archive; OCR and AI search are future plans.](docs/readme-hero.svg)
+## The application
 
-## The Application
+![Windows scanning desk](docs/screenshots/home.png)
 
-![Scan Archive home screen with the scan button, document preview area, and file list.](docs/screenshots/home.png)
+![Web document library with synthetic test data](docs/screenshots/web-library.png)
 
-**A focused scanning desk.** Start a scan, review documents, and browse the archive from one window. Select a PDF to render it locally; multi-page PDFs offer previous/next controls. The application interface is currently in Simplified Chinese.
+A focused Windows scanning desk with PDF page navigation, accompanied by a responsive browser dashboard for your computer and local network. The interface is currently in Simplified Chinese.
 
-## Why This Exists
+## Why this exists
 
-I built Scan Archive because I had too many paper documents. Keeping them was a chore; finding the right one later was even worse. Every bill, letter, receipt, and important record meant another decision about where to put it—and another search through a pile when I needed it again.
+Paper piles up. Saving it takes effort; finding it again takes even more. I wanted to put a document in my printer's scanner, click once, and keep a useful digital copy without deciding on a filename and folder every time.
 
-I wanted a simple connection between my printer's scanner and my archive: put the paper in, click **Scan**, and keep a digital copy automatically. No filename to invent. No folder to choose for every document. Just a repeatable routine that makes saving paperwork easy enough to actually do.
+Scan Archive connects capture to a personal document library. An AI analysis step reads each page and saves detailed metadata before a separate secretary agent organizes the file. The ambition is a private knowledge base where a sentence can lead back to the actual document and page, while the original scan remains available.
 
-That is what Scan Archive does today. It brings scanner control, PDF creation, preview, and date-based filing into one Windows application. The bigger ambition is a personal knowledge base: a place where my documents remain available, and where I can eventually find the right file with a sentence instead of remembering its name.
+## Run on Windows
 
-| The everyday problem | What Scan Archive does today |
-| --- | --- |
-| Paper keeps accumulating | Turns documents into PDF, PNG, or JPEG files through a WIA scanner |
-| Naming and filing every scan takes time | Names files from the scan start time and creates year/month/day folders |
-| Checking a scan interrupts the workflow | Provides image preview and local PDF rendering with page navigation |
-| A stack of pages needs to stay together | Combines an automatic document feeder session into one PDF |
-| A failed save could waste the scan | Retains acquired source pages in a recovery folder when scanning or archival fails |
-
-## Run It on Windows
-
-### Build and publish
-
-Use a Windows x64 computer with the **.NET 10 SDK**, Git, and a **WIA-compatible scanner driver**. This is a native desktop application; deployment means publishing and running it on Windows, not starting a web server or Docker container.
+Requirements: Windows x64, .NET 10 SDK to build, a WIA-compatible scanner driver, and an OpenAI API account for analysis and agent features. The published application includes its .NET runtime. Scanning and preview work without an API key.
 
 ```powershell
 git clone https://github.com/Ha22yX/scan-archive.git
 cd scan-archive
-dotnet publish ScanArchive -c Release -r win-x64 --self-contained true -o dist
+.\scripts\publish.ps1
 .\dist\ScanArchive.exe
 ```
 
-The repository currently provides source code rather than a packaged release download. Publishing creates `dist/` with the .NET runtime and PDF rendering dependencies. To use the app on another Windows x64 computer, copy the **entire `dist` folder**, then run `ScanArchive.exe`; the destination computer still needs its scanner driver.
+1. In the desktop settings, select your scanner, archive root, resolution and flatbed/feeder mode.
+2. Open **http://localhost:5278**. On the service computer, create a password of at least 10 characters for the web dashboard.
+3. Enter your OpenAI API key in desktop or web settings. The web settings also expose analysis/agent and embedding models, request limits and long-term instructions. Default models are `gpt-5.4` and `text-embedding-3-small`; choose models your account supports.
+4. Enable automatic organization and choose a daily wake time (default **05:00**, using Windows local time).
+5. Scan. The desktop saves the capture to `Inbox`, then the background service analyzes every page, builds the index, and queues the secretary to organize it.
 
-### First scan
+The service starts with the desktop application. You can also run `scripts/start-secretary.ps1`. Closing the scanner window leaves the service running. To opt into Windows sign-in startup, run `scripts/enable-startup.ps1`; use `-Disable` to remove it. The computer must be awake and the archive drive available. A missed daily review is caught up once when the service resumes; this is not a wake-from-sleep task or a pre-login Windows service.
 
-1. Turn on the scanner. For a network device, make sure Windows can reach it.
-2. Open **设置 (Settings)** and choose the scanning device and archive directory.
-3. Choose PDF, PNG, or JPEG, a resolution, and color or grayscale. Enable the document feeder for a multi-page PDF.
-4. Save settings, return to **主页 (Home)**, place your document, and click **开始扫描 (Start Scan)**.
-5. Review the saved file in the list. Select it for preview or double-click to open it in your default application.
+### Local network access
 
-Printing support alone does not mean a device is available for scanning: the app enumerates WIA scanning devices. The Brother DCP-L2640DW was used during development; its installed Windows WIA driver reports 100, 200, and 300 DPI. Other devices depend on their drivers. Each scan uses the maximum width and height reported by the driver for the selected source and resolution. Flatbed and feeder limits may differ; this does not detect paper edges or automatically crop blank margins.
+Use `http://<computer-IP>:5278` from another device on the same LAN and sign in with the same password. The service binds to all interfaces by default. If blocked, run `scripts/enable-lan.ps1` from an **administrator PowerShell**; it permits TCP 5278 only on private networks from the local subnet. Do not forward this port to the internet. The default transport is HTTP, intended for a trusted private network; remote access requires an authenticated HTTPS gateway configured separately.
 
-[Brother DCP-L2640DW drivers](https://support.brother.com/g/b/downloadtop.aspx?c=us&lang=en&prod=dcpl2640dw_us_as)
+## From paper to a searchable library
 
-## What Is Built Today
-
-| Capability | Behavior |
+| Stage | Behavior |
 | --- | --- |
-| One-click capture | Uses saved settings to start scanning and archive the result |
-| Flatbed and feeder | Single-page flatbed scans; WIA 2.0 feeder scans receive all pages in one transfer session and combine them into PDF |
-| PDF and image output | PDFsharp creates PDFs; PNG and JPEG support single-page image output |
-| Automatic filenames | Uses the scan start timestamp down to milliseconds; adds a sequence suffix if a name already exists |
-| Preview | Images display directly; DocNET/PDFium renders selected PDF pages locally |
-| Page navigation | Previous/next controls and page count for multi-page PDF previews |
-| File management | File list, system-app opening, and a confirmed delete action using Windows shell recycle behavior |
-| Stop after current page | Finishes the active page and archives the pages already acquired |
-| Local processing | No AI API key, cloud service, or document upload is needed for the current workflow |
+| Capture | Flatbed or native WIA 2.0 feeder; PDF/PNG/JPEG; driver-reported maximum scan area; timestamped capture name |
+| Page analysis | OpenAI vision transcribes visible text and records detailed summaries, subjects, entities, dates, exact numbers, bilingual keywords and readability uncertainty |
+| Document analysis | All pages contribute to a comprehensive document overview; long documents use grouped outlines rather than dropping later pages |
+| Durable metadata | SQLite plus per-document JSON, including scan time, content hash, stable ID, original location, per-page analysis, model and analysis time |
+| Organization | A separate tool-using agent chooses semantic folders and titles, can split independent documents into separate PDFs, and retains the original |
+| Retrieval | Exact matches, SQLite FTS5 with Chinese bigrams, page-level overlapping chunks and OpenAI embeddings, combined with reciprocal-rank fusion |
+| Agent search | Multiple complementary queries, reading the matching source pages, and clickable document/page citations; known analysis backlogs are disclosed |
+| Daily review | Reviews library structure, names, index coverage and stored preferences; can reorganize categories or repair missing vectors |
 
-On network shares, recycle support depends on Windows and the storage provider; do not assume a deleted file will be recoverable from the local Recycle Bin.
+The agent can inspect and search documents, read pages, create categories, move/rename files, merge categories, split PDF ranges, queue analysis, repair indexes, remember preferences and undo moves. Its tools operate within the configured library. Manual categorization locks a document against agent moves. File moves are journaled and reversible; source bytes are retained. Document contents are treated as evidence, not instructions.
 
-### Archive layout
+### Storage and traceability
 
 ```text
-Your archive folder/
-└── 2026/
-    └── 09/
-        └── 07/
-            ├── 2026-09-07_09-30-15-123.pdf
-            └── 2026-09-07_09-30-15-123_002.pdf
+Archive root/
+  Inbox/                       # Newly captured/imported files
+  Library/<AI categories>/     # Organized files; stable ID suffix avoids collisions
+  .scanarchive-originals/      # Original bytes identified by SHA-256
+  .scanarchive-metadata/       # One comprehensive JSON file per document ID
+%LOCALAPPDATA%/ScanArchive/Secretary/
+  library.db                   # Search index, metadata, jobs, conversations and audit trail
+  settings.json                # Non-secret configuration
+  openai.secret                # API key encrypted for the current Windows account
+  outbox/                      # Durable capture notifications
 ```
 
-There are no manual categories or document titles to enter. The `_002` suffix is only added when a filename already exists; ordinary scans use the timestamp alone.
+The scan timestamp is separate from any date found in the document. Split children inherit that timestamp and retain the parent ID and original page range. Legacy date-folder files are discovered and can be reorganized; when no capture event exists, their filesystem creation time is used as a fallback, which may be inaccurate after copying. Exact byte duplicates share one document record. Metadata is available in the document details and as JSON beside the library; page checkpoints survive API failures.
 
-### Settings and recovery
+**Back up both the archive root and the local Secretary data directory**, with the service stopped for a consistent database copy. Keeping originals on the same drive is recovery protection, not an independent backup. DPAPI secrets are bound to the Windows account: configure the API key again after migration. JSON exports preserve content and provenance, but a complete automated database restore from sidecars is not yet implemented.
 
-| Location | Purpose |
-| --- | --- |
-| Your chosen archive directory | Completed PDF or image files |
-| `%LOCALAPPDATA%/ScanArchive/settings.json` | Scanner selection and saved preferences |
-| `%LOCALAPPDATA%/ScanArchive/Pending/` | Acquired source pages retained after a failed operation |
+## Implementation and verification
 
-The error dialog identifies the recovery directory. On success, the application writes the output to a temporary `.partial` file, moves it to the final filename, and then cleans up the acquired source pages.
-
-## Under the Hood
-
-| Layer | Implementation |
-| --- | --- |
-| Desktop interface | C# and Windows Forms on .NET 10 |
-| Device connection | Windows Image Acquisition (WIA) on an STA worker thread; NAPS2.Wia 2.0.3 receives feeder pages through WIA 2.0 callbacks |
-| Driver settings | Properties resolved by `PropertyID`, with supported lists/ranges used to normalize values |
-| PDF creation | PDFsharp 6.2.2 |
-| PDF preview | Docnet.Core 2.6.0 and its native PDFium runtime; the selected document is read into memory |
-| Image handling | System.Drawing for bitmap previews and image output |
-| Persistence | Ordinary files and JSON settings; no database or server |
-
-```text
-ScanArchive/
-├── MainWindow.cs            Home, settings, scanning workflow, preview navigation
-├── Scanner.cs               WIA discovery, settings, and page acquisition
-├── Archive.cs               Date folders, output writing, and saved settings
-├── PdfPreviewDocument.cs    PDF page rendering and document lifetime
-└── SelfTest.cs              Generated-document verification
-```
-
-### Verify a build
+- Desktop: C# / .NET 10 WinForms, WIA, NAPS2.Wia, PDFsharp and Docnet/PDFium.
+- Service: ASP.NET Core, SQLite/FTS5, plain JavaScript/CSS, no separate Node deployment.
+- AI: official OpenAI Responses API with structured analysis and a bounded tool loop; embeddings stored with model provenance. `store:false` is used for Responses requests; scan content is still transmitted to OpenAI for processing.
+- Reliability: durable job queue, per-page checkpoints, retry/backoff, daily request cap, lexical search when embeddings fail, recoverable move journal and protected original copies.
+- Access: password authentication, HTTP-only same-site cookies, same-origin mutation checks, DPAPI-protected key storage. API keys are not returned by settings endpoints.
 
 ```powershell
-Start-Process .\dist\ScanArchive.exe -ArgumentList '--self-test' -Wait
-Get-Content .\dist\self-test.txt
+dotnet test ScanArchive.Server.Tests -c Release
+.\dist\ScanArchive.exe --self-test
 ```
 
-The self-test generates temporary documents and checks PDF creation and page rendering, image output, naming, collision handling, and WIA enumeration. It does not start a physical scan. Real feeder behavior and device compatibility still need validation with the scanner being used.
+Automated tests use synthetic PDFs and a mocked OpenAI transport. They cover analysis-before-organization, metadata persistence, Chinese/identifier retrieval, embedding outages, scan provenance after splitting, moves/undo, path boundaries, verified citations and daily scheduling. These tests do **not** measure real-model OCR or retrieval quality. Real API behavior, cost and document accuracy must be evaluated with your own key and representative scans. Handwriting, clipping and tiny text can still be misread; review important results against the page preview.
 
-## Where This Could Go
+The semantic search implementation currently scores vectors in process; large libraries will eventually need a dedicated approximate-nearest-neighbor index. A request-count limit is not a dollar spending cap. The agent has a bounded number of tool steps per run, so very large reorganizations may need another wake-up.
 
-The long-term goal is **a personal knowledge base built from the documents I already own**. Saving a document should be the start of making it useful, not the start of forgetting where it went.
+## What comes next
 
-These are future directions, not features available today:
+- A real-document retrieval evaluation set with measured page-level recall.
+- Better local OCR and selective high-resolution rereading for difficult pages.
+- Document relationships, duplicate-scan history and richer knowledge-base navigation.
+- Faster vector retrieval for large collections, full migration tooling and encrypted off-device backup.
 
-- [ ] **OCR and searchable text.** Extract text while retaining the original scan as the source of truth.
-- [ ] **A personal document index.** Add useful metadata and make content searchable across the archive.
-- [ ] **Find a document in one sentence.** Ask “Where is the warranty for my laptop?” and receive the original file, with the relevant page.
-- [ ] **AI-assisted understanding.** Explore summaries and suggested tags with explicit control over model providers and document access.
-- [ ] **Stronger preservation.** Add backup destinations, integrity checks, and restore verification to protect against more than lost paper.
-
-Digitization reduces dependence on physical paper, but a single digital copy can still be lost. The current app creates an archive; it does not yet provide automated backups or a guarantee of permanent preservation. OCR, AI search, automatic classification, and duplex scanning are not implemented.
-
-## Related Project
-
-[Auto Email System](https://github.com/Ha22yX/auto-email-system) tackles another source of information overload: the inbox. Scan Archive starts with paper. Both projects come from the same desire to spend less time sorting information and more time using it.
+The direction is simple: preserve paper faithfully, understand it usefully, and make the original easy to find again.

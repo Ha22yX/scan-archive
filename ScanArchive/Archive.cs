@@ -36,7 +36,7 @@ public static class Archive
     }
     public static string Save(string root, string format, List<string> images, int dpi, DateTime time)
     {
-        string directory = Path.Combine(Path.GetFullPath(root), time.ToString("yyyy"), time.ToString("MM"), time.ToString("dd"));
+        string directory = Path.Combine(Path.GetFullPath(root), "Inbox");
         Directory.CreateDirectory(directory);
         string suffix = format == "PDF" ? ".pdf" : format == "JPEG" ? ".jpg" : ".png";
         string stem = time.ToString("yyyy-MM-dd_HH-mm-ss-fff");

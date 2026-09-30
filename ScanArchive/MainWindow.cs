@@ -12,6 +12,10 @@ public sealed class MainWindow : Form
     readonly ComboBox format = new() { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill };
     readonly CheckBox feeder = new() { Text = "自动进纸器（多页）", AutoSize = true };
     readonly CheckBox color = new() { Text = "彩色扫描", Checked = true, AutoSize = true };
+    readonly TextBox apiKey = new() { Dock = DockStyle.Fill, UseSystemPasswordChar = true, PlaceholderText = "输入新密钥；留空保留已有密钥" };
+    readonly DateTimePicker wakeTime = new() { Format = DateTimePickerFormat.Custom, CustomFormat = "HH:mm", ShowUpDown = true, Dock = DockStyle.Fill };
+    readonly CheckBox scheduledAgent = new() { Text = "每日唤醒", Checked = true, AutoSize = true };
+    readonly CheckBox autoAgent = new() { Text = "扫描分析后自动整理", Checked = true, AutoSize = true };
     readonly Button scan = PrimaryButton("开始扫描", 210, 54);
     readonly Label status = new() { Text = "准备就绪", AutoSize = false, Dock = DockStyle.Bottom, Height = 34, TextAlign = ContentAlignment.MiddleLeft, ForeColor = Color.FromArgb(71, 85, 105) };
     readonly Label previewHint = new() { Text = "扫描完成后在这里预览", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter, ForeColor = Color.FromArgb(100, 116, 139) };
@@ -52,6 +56,14 @@ public sealed class MainWindow : Form
         if (format.SelectedIndex < 0) format.SelectedItem = "PDF";
         feeder.Checked = settings.Feeder;
         color.Checked = settings.Color;
+        try
+        {
+            var prefs = SecretaryIntegration.Preferences();
+            wakeTime.Value = DateTime.Today.Add(TimeOnly.Parse(prefs["dailyWakeTime"]?.ToString() ?? "05:00").ToTimeSpan());
+            scheduledAgent.Checked = prefs["scheduleEnabled"]?.GetValue<bool>() ?? true;
+            autoAgent.Checked = prefs["autoOrganize"]?.GetValue<bool>() ?? true;
+        }
+        catch { wakeTime.Value = DateTime.Today.AddHours(5); }
         feeder.CheckedChanged += (_, _) => { if (feeder.Checked) format.SelectedItem = "PDF"; format.Enabled = !feeder.Checked; };
         format.Enabled = !feeder.Checked;
 
@@ -82,7 +94,7 @@ public sealed class MainWindow : Form
         pdfNavigation.Controls.AddRange([previousPage, pageNumber, nextPage]);
         previousPage.Click += (_, _) => ChangePdfPage(-1);
         nextPage.Click += (_, _) => ChangePdfPage(1);
-        Shown += async (_, _) => { await LoadDevices(); ShowHome(); await RefreshFiles(); };
+        Shown += async (_, _) => { await SecretaryIntegration.EnsureStarted(); await LoadDevices(); ShowHome(); await RefreshFiles(); };
         FormClosing += (_, e) => { if (busy) { e.Cancel = true; MessageBox.Show("请等待当前页完成，程序会保存已经扫描的页面。", "正在扫描"); } };
         FormClosed += (_, _) => ClosePdf();
         ShowHome();
@@ -139,11 +151,11 @@ public sealed class MainWindow : Form
         {
             var page = new Panel { Dock = DockStyle.Fill, BackColor = Color.White, AutoScroll = true };
             var heading = new Label { Text = "设置", Dock = DockStyle.Top, Height = 58, Font = new Font(Font.FontFamily, 20, FontStyle.Bold) };
-            var form = new TableLayoutPanel { Dock = DockStyle.Top, Height = 360, ColumnCount = 3, RowCount = 6, Padding = new Padding(24), BackColor = Surface };
+            var form = new TableLayoutPanel { Dock = DockStyle.Top, Height = 570, ColumnCount = 3, RowCount = 10, Padding = new Padding(24), BackColor = Surface };
             form.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120));
             form.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             form.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120));
-            for (int i = 0; i < 6; i++) form.RowStyles.Add(new RowStyle(SizeType.Absolute, i == 5 ? 64 : 50));
+            for (int i = 0; i < 10; i++) form.RowStyles.Add(new RowStyle(SizeType.Absolute, i == 9 ? 64 : 50));
             AddSetting(form, 0, "扫描设备", devices, SecondaryButton("刷新设备", async () => await LoadDevices()));
             AddSetting(form, 1, "归档目录", root, SecondaryButton("选择目录", ChooseRoot));
             AddSetting(form, 2, "分辨率", dpi, new Label { Text = "DPI · 设备最大扫描范围", AutoSize = true, Padding = new Padding(8, 7, 0, 0), ForeColor = Color.FromArgb(100, 116, 139) });
@@ -151,9 +163,13 @@ public sealed class MainWindow : Form
             var options = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight };
             options.Controls.AddRange([color, feeder]);
             AddSetting(form, 4, "扫描方式", options, new Label());
+            AddSetting(form, 5, "OpenAI Key", apiKey, new Label { Text = SecretaryIntegration.HasKey ? "已配置密钥" : "尚未配置", AutoSize = true, Padding = new Padding(0, 8, 0, 0) });
+            AddSetting(form, 6, "每日唤醒", wakeTime, scheduledAgent);
+            AddSetting(form, 7, "文档秘书", autoAgent, new Label());
+            AddSetting(form, 8, "网页管理", new Label { Text = "文档搜索 · Agent 对话 · 整理记录", AutoSize = true, Padding = new Padding(0, 8, 0, 0) }, SecondaryButton("打开面板", async () => await SecretaryIntegration.OpenPanel()));
             var save = PrimaryButton("保存设置", 130, 42);
-            save.Click += (_, _) => { try { SaveSettings(); MessageBox.Show("设置已保存。", "扫描归档"); } catch (Exception ex) { MessageBox.Show(ex.Message, "无法保存设置"); } };
-            form.Controls.Add(save, 1, 5);
+            save.Click += (_, _) => { try { SaveSettings(); SecretaryIntegration.Save(settings.Root, apiKey.Text, wakeTime.Value.ToString("HH:mm"), scheduledAgent.Checked, autoAgent.Checked); apiKey.Clear(); MessageBox.Show("设置已保存。", "扫描归档"); } catch (Exception ex) { MessageBox.Show(ex.Message, "无法保存设置"); } };
+            form.Controls.Add(save, 1, 9);
             page.Controls.Add(form);
             page.Controls.Add(heading);
             settingsPage = page;
@@ -272,6 +288,8 @@ public sealed class MainWindow : Form
             if (result.Pages.Count == 0) { status.Text = "已停止，没有扫描文件"; return; }
             ShowPreview(CreatePreview(result.Pages[0]), $"本次扫描 · {result.Pages.Count} 页");
             string saved = await Task.Run(() => Archive.Save(settings.Root, settings.Format, result.Pages, result.ActualDpi, started));
+            try { SecretaryIntegration.Notify(saved, started); }
+            catch (Exception ex) { status.Text = "文件已保存，后台将在检查文档库时补处理：" + ex.Message; }
             if (result.Warning == null)
             {
                 foreach (string page in result.Pages) File.Delete(page);
@@ -324,7 +342,7 @@ public sealed class MainWindow : Form
         {
             var found = await Task.Run(() => Directory.Exists(directory)
                 ? Directory.EnumerateFiles(directory, "*", new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true, AttributesToSkip = FileAttributes.ReparsePoint })
-                    .Where(p => new[] { ".pdf", ".png", ".jpg", ".jpeg" }.Contains(Path.GetExtension(p).ToLowerInvariant()))
+                    .Where(p => !Path.GetRelativePath(directory, p).Split(Path.DirectorySeparatorChar).Any(part => part.StartsWith('.')) && new[] { ".pdf", ".png", ".jpg", ".jpeg" }.Contains(Path.GetExtension(p).ToLowerInvariant()))
                     .Select(p => new FileInfo(p)).OrderByDescending(p => p.CreationTimeUtc).ToList() : []);
             if (version != refreshVersion) return;
             files.BeginUpdate();

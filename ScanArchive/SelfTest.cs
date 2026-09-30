@@ -97,7 +97,7 @@ static class SelfTest
             using (var bitmap = Image.FromFile(jpg)) if (bitmap.Height != 900) throw new Exception("JPEG dimensions");
             string duplicate = Archive.Save(folder, "PDF", [image], 300, date);
             if (duplicate == pdf || !File.Exists(pdf)) throw new Exception("Collision protection");
-            if (!pdf.EndsWith(Path.Combine("2026", "09", "06", "2026-09-06_12-30-00-000.pdf"))) throw new Exception("Date/time archive path");
+            if (!pdf.EndsWith(Path.Combine("Inbox", "2026-09-06_12-30-00-000.pdf"))) throw new Exception("Inbox archive path");
             if (!duplicate.EndsWith("2026-09-06_12-30-00-000_002.pdf")) throw new Exception("Sequential collision suffix");
             if (Archive.Clean("CON") != "_CON" || Archive.Clean("..") == "..") throw new Exception("Unsafe path");
             if (Scanner.NormalizeValue(150, 2, 0, 0, 1, [100, 200, 300]) != 200) throw new Exception("WIA list normalization");

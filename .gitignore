@@ -2,6 +2,13 @@
 **/obj/
 .vs/
 dist/
+dist-*/
+publish/
+**/TestResults/
+*.db
+*.db-shm
+*.db-wal
+*.secret
 *.user
 *.suo
 *.log
