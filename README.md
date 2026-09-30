@@ -32,7 +32,7 @@ cd scan-archive
 
 1. In the desktop settings, select your scanner, archive root, resolution and flatbed/feeder mode.
 2. Open **http://localhost:5278**. On the service computer, create a password of at least 10 characters for the web dashboard.
-3. Enter your OpenAI API key in desktop or web settings. The web settings also expose analysis/agent and embedding models, request limits and long-term instructions. Default models are `gpt-5.4` and `text-embedding-3-small`; choose models your account supports.
+3. Enter your OpenAI API key in desktop or web settings. The web settings also expose analysis/agent and embedding models, request limits and long-term instructions. Default models are `gpt-6-astra` and `text-embedding-3-large`; choose models your account supports.
 4. Enable automatic organization and choose a daily wake time (default **05:00**, using Windows local time).
 5. Scan. The desktop saves the capture to `Inbox`, then the background service analyzes every page, builds the index, and queues the secretary to organize it.
 

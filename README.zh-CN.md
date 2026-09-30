@@ -35,7 +35,7 @@ cd scan-archive
 4. 设置扫描后自动整理，以及每日巡检时间，默认 Windows 本地时间 **05:00**。
 5. 点击扫描：文件先进入 Inbox，内容分析完成后再交给 Agent 整理。
 
-默认模型为 `gpt-5.4` 和 `text-embedding-3-small`，请选择账户支持的模型。页面图片会发送给 OpenAI 官方 API 处理；Key 使用当前 Windows 账户 DPAPI 加密，不写入仓库或在网页返回。
+默认模型为 `gpt-6-astra` 和 `text-embedding-3-large`，请选择账户支持的模型。页面图片会发送给 OpenAI 官方 API 处理；Key 使用当前 Windows 账户 DPAPI 加密，不写入仓库或在网页返回。
 
 关闭扫描窗口不会退出后台服务。也可以用 `scripts/start-secretary.ps1` 启动；希望登录 Windows 自动启动时，手动执行 `scripts/enable-startup.ps1`，用 `-Disable` 取消。电脑须开机且归档盘可访问，错过的最近一次每日巡检会在恢复后补执行。它不负责唤醒休眠电脑，也不是登录前启动的系统服务。
 

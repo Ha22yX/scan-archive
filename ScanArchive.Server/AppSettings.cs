@@ -7,8 +7,8 @@ namespace ScanArchive.Server;
 public sealed record ServerOptions
 {
     public string LibraryRoot { get; init; } = "";
-    public string Model { get; init; } = "gpt-5.4";
-    public string EmbeddingModel { get; init; } = "text-embedding-3-small";
+    public string Model { get; init; } = "gpt-6-astra";
+    public string EmbeddingModel { get; init; } = "text-embedding-3-large";
     public bool AutoOrganize { get; init; } = true;
     public bool ScheduleEnabled { get; init; } = true;
     public int ScheduleMinutes { get; init; } = 60;
