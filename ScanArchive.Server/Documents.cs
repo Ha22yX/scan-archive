@@ -194,16 +194,46 @@ public sealed class Documents(AppSettings settings, Database db)
     }
     public async Task<string> Split(string id,int first,int last,string title,CancellationToken ct)
     {
+        if(first<1||last<first||last-first>10000)throw new ArgumentException("页码范围无效。");
+        return await ExtractPages(id,string.Join(',',Enumerable.Range(first,last-first+1)),title,ct);
+    }
+    public static int[] ParsePages(string selection,int count)
+    {
+        var pages=new List<int>();
+        foreach(string part in selection.Split(',',StringSplitOptions.TrimEntries|StringSplitOptions.RemoveEmptyEntries))
+        {
+            var bounds=part.Split('-');
+            if(bounds.Length>2||!int.TryParse(bounds[0],out int first))throw new ArgumentException("页码格式示例：1,6 或 2-3。");
+            int last=first;
+            if(bounds.Length==2&&!int.TryParse(bounds[1],out last))throw new ArgumentException("页码格式无效。");
+            if(first<1||last<first||last>count)throw new ArgumentException("页码越界。");
+            pages.AddRange(Enumerable.Range(first,last-first+1));
+        }
+        if(pages.Count==0||pages.Distinct().Count()!=pages.Count)throw new ArgumentException("页码不能为空或重复。");
+        return pages.ToArray();
+    }
+    public async Task<string> ExtractPages(string id,string selection,string title,CancellationToken ct)
+    {
         var doc=db.Doc(id)??throw new KeyNotFoundException();
         if(doc.S("status")=="deleted")throw new InvalidOperationException("文档已在回收站。");
         if(!doc.S("original").EndsWith(".pdf",StringComparison.OrdinalIgnoreCase))throw new ArgumentException("只有 PDF 可拆分页。");
         using var source=PdfReader.Open(doc.S("original"),PdfDocumentOpenMode.Import);
-        if(first<1||last<first||last>source.PageCount)throw new ArgumentException("页码范围无效。");
+        int[] pages=ParsePages(selection,source.PageCount);
+        bool consecutive=pages.SequenceEqual(Enumerable.Range(pages[0],pages.Length));
+        string pageMap=consecutive?$"{pages[0]}-{pages[^1]}":string.Join(',',pages);
+        if(doc.S("parent_id")!=""&&pages.SequenceEqual(Enumerable.Range(1,source.PageCount)))throw new ArgumentException("不能完整复制已拆分的子文件。");
+        var existing=db.Rows("SELECT id FROM documents WHERE parent_id=$i AND source_pages=$p",("$i",id),("$p",pageMap)).FirstOrDefault();
+        if(existing!=null)return existing.S("id");
         string path=SafePath("Inbox/"+Clean(title)+"__"+Guid.NewGuid().ToString("N")[..8]+".pdf");Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        using(var output=new PdfDocument()){for(int p=first-1;p<last;p++)output.AddPage(source.Pages[p]);output.Save(path);}
+        using(var output=new PdfDocument()){foreach(int p in pages)output.AddPage(source.Pages[p-1]);output.Save(path);}
         string child=await Import(path,doc.S("scanned"),id,ct);
-        db.Exec("UPDATE documents SET source_pages=$p WHERE id=$i",("$p",$"{first}-{last}"),("$i",child));
+        db.Exec("UPDATE documents SET source_pages=$p WHERE id=$i",("$p",pageMap),("$i",child));
+        // The bytes of each extracted page are unchanged, so reuse its completed analysis.
+        for(int index=0;index<pages.Length;index++)
+        {
+            db.Exec("INSERT OR IGNORE INTO pages(doc_id,number,text,summary) SELECT $child,$n,text,summary FROM pages WHERE doc_id=$parent AND number=$p; INSERT OR IGNORE INTO analyses(doc_id,page,model,analyzed_at) SELECT $child,$n,model,analyzed_at FROM analyses WHERE doc_id=$parent AND page=$p",("$child",child),("$n",index+1),("$parent",id),("$p",pages[index]));
+        }
         WriteMetadata(child);
-        db.Log("split",$"{doc.S("title")} 第 {first}–{last} 页已生成独立文件，原文件保留。");return child;
+        db.Log("split",$"{doc.S("title")} 第 {pageMap} 页已生成独立文件，原文件保留。");return child;
     }
 }

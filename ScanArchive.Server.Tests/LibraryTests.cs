@@ -65,6 +65,16 @@ public sealed class FakeApi:HttpMessageHandler
 
 public class LibraryTests
 {
+    [Fact] public async Task NonAdjacentPagesKeepOrderProvenanceAndCompletedAnalysis()
+    {
+        var f=new LibraryFixture();string id=await f.Docs.Import(f.Pdf(count:3));await f.Analyzer.Analyze(id,CancellationToken.None);
+        string child=await f.Docs.ExtractPages(id,"3,1","不连续页",CancellationToken.None);
+        Assert.Equal("3,1",f.Db.Doc(child)!.S("source_pages"));Assert.Equal(2,f.Docs.PageCount(f.Db.Doc(child)!));
+        Assert.Equal(f.Db.Rows("SELECT text FROM pages WHERE doc_id=$i AND number=3",("$i",id))[0].S("text"),f.Db.Rows("SELECT text FROM pages WHERE doc_id=$i AND number=1",("$i",child))[0].S("text"));
+        Assert.Equal(child,await f.Docs.ExtractPages(id,"3,1","重复交接",CancellationToken.None));
+        await f.Analyzer.Analyze(child,CancellationToken.None);Assert.Equal(3,f.Fake.PageCalls);
+        await Assert.ThrowsAsync<ArgumentException>(()=>f.Docs.ExtractPages(id,"1,1","重复页面",CancellationToken.None));
+    }
     [Fact] public async Task ScanHandoffSurvivesLostAcknowledgementAndFileRename()
     {
         var f=new LibraryFixture();var coordinator=new CaptureCoordinator(f.Settings,f.Db,f.Docs);

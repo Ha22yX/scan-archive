@@ -45,3 +45,4 @@ start().catch(e=>toast(e.message));
 setInterval(async()=>{if($('shell').classList.contains('hidden'))return;try{if(state.view==='agent')await chatUpdate();if(state.view==='library'&&!state.searching&&state.offset===0&&!$('document-dialog').open)await library();}catch{}},3000);
 setInterval(async()=>{if($('shell').classList.contains('hidden'))return;try{await status();if(state.view==='activity')await activity();}catch{}},12000);
 window.addEventListener('hashchange',()=>{const name=location.hash.slice(1);if(name!==state.view&&!$('shell').classList.contains('hidden'))view(name).catch(e=>toast(e.message));});
+on('doc-organize','click',async()=>{await api('/documents/'+state.document.document.id+'/organize','POST',{});toast('已交给秘书重新整理，原件会保留');});

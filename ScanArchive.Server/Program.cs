@@ -12,7 +12,10 @@ using System.Net;
 var builder=WebApplication.CreateBuilder(args);
 var settings=new AppSettings();
 // A file lock follows the process lifetime and prevents concurrent queue recovery.
-using var instanceLock=new FileStream(Path.Combine(settings.DataRoot,"service.lock"),FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None);
+FileStream instanceLock;
+try{instanceLock=new FileStream(Path.Combine(settings.DataRoot,"service.lock"),FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None);}
+catch(IOException){return;}
+using var instanceLease=instanceLock;
 builder.WebHost.UseUrls(Environment.GetEnvironmentVariable("SCANARCHIVE_URLS")??"http://0.0.0.0:5278");
 builder.WebHost.ConfigureKestrel(o=>o.Limits.MaxRequestBodySize=100*1024*1024);
 builder.Services.AddSingleton(settings);
@@ -103,6 +106,11 @@ api.MapGet("/documents/{id}/metadata",(string id,Database db)=>Results.Json(new{
 api.MapPost("/documents/{id}/move",async(string id,JsonObject body,Documents docs,CancellationToken ct)=>await docs.Move(id,body.S("title"),body.S("category"),"用户手动调整",true,ct));
 api.MapPost("/documents/{id}/unlock",(string id,Database db)=>{db.Exec("UPDATE documents SET locked=0 WHERE id=$i",("$i",id));return Results.Ok();});
 api.MapPost("/documents/{id}/retry",(string id,Documents docs)=>new{job=docs.Enqueue("index",id)});
+api.MapPost("/documents/{id}/organize",(string id,Documents docs,Database db)=>{
+    var doc=db.Doc(id)??throw new KeyNotFoundException();
+    if(doc.S("status") is not ("ready" or "analyzed"))throw new ArgumentException("请等待内容分析完成后再整理。");
+    return new{job=docs.Enqueue("organize",id)};
+});
 api.MapPost("/upload",async(HttpRequest request,Documents docs,CancellationToken ct)=>{
     var form=await request.ReadFormAsync(ct);var ids=new List<string>();
     foreach(var file in form.Files)
