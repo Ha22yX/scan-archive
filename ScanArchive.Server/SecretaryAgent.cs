@@ -21,7 +21,7 @@ public sealed class SecretaryAgent(AppSettings settings,Database db,Documents do
         Tool("undo_operation","Undo an applied file move by operation ID.",("id","string"))
     );
     public JsonObject Overview() => new(){
-        ["counts"]=new JsonArray(db.Rows("SELECT status,count(*) count FROM documents GROUP BY status").Select(x=>(JsonNode)x).ToArray()),
+        ["counts"]=new JsonArray(db.Rows("SELECT status,count(*) count FROM documents WHERE status<>'deleted' GROUP BY status").Select(x=>(JsonNode)x).ToArray()),
         ["categories"]=docs.Folders(),
         ["missing_vectors"]=db.Rows("SELECT count(*) count FROM chunks WHERE embedding IS NULL OR model<>$m",("$m",settings.Current.EmbeddingModel))[0].DeepClone(),
         ["rules"]=new JsonArray(db.Rows("SELECT id,text FROM memories ORDER BY created").Select(x=>(JsonNode)x).ToArray()),
@@ -88,7 +88,7 @@ public sealed class SecretaryAgent(AppSettings settings,Database db,Documents do
                 var doc=db.Doc(id)??throw new ArgumentException("文档不存在。");int first=Math.Max(1,args.I("start")),last=args.I("end");
                 if(last<first||last-first>=10)throw new ArgumentException("每次读取 1 至 10 页。");
                 return new JsonObject{["document"]=doc,["pages"]=new JsonArray(db.Rows("SELECT number,text,summary FROM pages WHERE doc_id=$i AND number BETWEEN $a AND $b ORDER BY number",("$i",id),("$a",first),("$b",last)).Select(x=>(JsonNode)x).ToArray())};
-            case "list_documents":return new JsonObject{["documents"]=new JsonArray(db.Rows("SELECT id,title,category,summary,tags,status,scanned,document_date,page_count,parent_id,source_pages,mixed_content,locked,error FROM documents WHERE ($s='' OR status=$s) AND ($c='' OR category=$c) ORDER BY created DESC LIMIT 50 OFFSET $o",("$s",args.S("status")),("$c",args.S("category")),("$o",Math.Max(0,args.I("offset")))).Select(x=>(JsonNode)x).ToArray())};
+            case "list_documents":return new JsonObject{["documents"]=new JsonArray(db.Rows("SELECT id,title,category,summary,tags,status,scanned,document_date,page_count,parent_id,source_pages,mixed_content,locked,error FROM documents WHERE status<>'deleted' AND ($s='' OR status=$s) AND ($c='' OR category=$c) ORDER BY created DESC LIMIT 50 OFFSET $o",("$s",args.S("status")),("$c",args.S("category")),("$o",Math.Max(0,args.I("offset")))).Select(x=>(JsonNode)x).ToArray())};
             case "create_category":string category=docs.Category(args.S("category"));Directory.CreateDirectory(docs.SafePath("Library/"+category));return new JsonObject{["category"]=category};
             case "move_document":return await docs.Move(id,args.S("title"),args.S("category"),args.S("reason"),false,ct);
             case "merge_category":
@@ -106,6 +106,7 @@ public sealed class SecretaryAgent(AppSettings settings,Database db,Documents do
                 return new JsonObject{["id"]=child?.S("id")??await docs.Split(id,args.I("first"),args.I("last"),args.S("title"),ct)};
             case "queue_reanalysis":
                 if(db.Doc(id)==null)throw new ArgumentException("文档不存在。");
+                if(db.Doc(id)!.S("status")=="deleted")throw new ArgumentException("请先恢复回收站文档。");
                 db.Exec("DELETE FROM pages WHERE doc_id=$i; UPDATE documents SET status='queued' WHERE id=$i",("$i",id));return new JsonObject{["job"]=docs.Enqueue("index",id)};
             case "repair_search_index":
                 if(db.Doc(id)==null)throw new ArgumentException("文档不存在。");return new JsonObject{["job"]=docs.Enqueue("reindex",id)};

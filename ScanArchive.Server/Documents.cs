@@ -74,18 +74,20 @@ public sealed class Documents(AppSettings settings, Database db)
     }
     public string Enqueue(string kind,string payload)
     {
+        if(kind is "index" or "organize" or "embeddings" or "reindex" && db.Doc(payload)?.S("status")=="deleted")throw new InvalidOperationException("请先从回收站恢复此文件。");
         var old=db.Rows("SELECT id FROM jobs WHERE kind=$k AND payload=$p AND status IN ('pending','running')",("$k",kind),("$p",payload)).FirstOrDefault();
         if(old!=null)return old.S("id");
         string id=Guid.NewGuid().ToString("N");
         db.Exec("INSERT INTO jobs(id,kind,payload,status,next_run,created,updated) VALUES($id,$k,$p,'pending',$t,$t,$t)",("$id",id),("$k",kind),("$p",payload),("$t",Database.Now));return id;
     }
-    public JsonArray Folders() => new(db.Rows("SELECT category,count(*) count FROM documents WHERE category<>'' GROUP BY category ORDER BY category").Select(x=>(JsonNode)x).ToArray());
+    public JsonArray Folders() => new(db.Rows("SELECT category,count(*) count FROM documents WHERE status<>'deleted' AND category<>'' GROUP BY category ORDER BY category").Select(x=>(JsonNode)x).ToArray());
     public async Task<JsonObject> Move(string id,string title,string category,string reason,bool locked=false,CancellationToken ct=default)
     {
         await Mutation.WaitAsync(ct);
         try
         {
             var doc=db.Doc(id)??throw new KeyNotFoundException("文档不存在");
+            if(doc.S("status")=="deleted")throw new InvalidOperationException("文档已在回收站。");
             if(doc.I("locked")==1 && !locked) throw new InvalidOperationException("此文件的分类已由用户锁定。");
             title=Clean(title); category=Category(category);
             string destination=SafePath("Library/"+category+"/"+title+"__"+id[..8]+Path.GetExtension(doc.S("path")));
@@ -138,12 +140,37 @@ public sealed class Documents(AppSettings settings, Database db)
         if(!doc.S("original").EndsWith(".pdf",StringComparison.OrdinalIgnoreCase))return 1;
         using var reader=DocLib.Instance.GetDocReader(File.ReadAllBytes(doc.S("original")),new PageDimensions(1200,1600));return reader.GetPageCount();
     }
+    public async Task Trash(string id,CancellationToken ct)
+    {
+        await Mutation.WaitAsync(ct);
+        try
+        {
+            var doc=db.Doc(id)??throw new KeyNotFoundException("文档不存在。");
+            if(doc.S("status")=="deleted")return;
+            if(db.Rows("SELECT id FROM jobs WHERE payload=$i AND status='running'",("$i",id)).Count>0)throw new InvalidOperationException("此文件正在处理，请等待当前任务完成后再删除。");
+            db.Exec("INSERT OR REPLACE INTO trash VALUES($i,$s,$t); UPDATE documents SET status='deleted' WHERE id=$i; UPDATE jobs SET status='cancelled' WHERE payload=$i AND status='pending'",("$i",id),("$s",doc.S("status")),("$t",Database.Now));
+            WriteMetadata(id);db.Log("trash","已移入应用回收站："+doc.S("title"));
+        }
+        finally{Mutation.Release();}
+    }
+    public async Task Restore(string id,CancellationToken ct)
+    {
+        await Mutation.WaitAsync(ct);
+        try
+        {
+            var item=db.Rows("SELECT * FROM trash WHERE doc_id=$i",("$i",id)).FirstOrDefault()??throw new ArgumentException("文件不在回收站。");
+            db.Exec("UPDATE documents SET status=$s WHERE id=$i; DELETE FROM trash WHERE doc_id=$i; UPDATE jobs SET status='pending' WHERE payload=$i AND status='cancelled'",("$i",id),("$s",item.S("previous_status")));
+            WriteMetadata(id);db.Log("restore","已从回收站恢复文档。");
+        }
+        finally{Mutation.Release();}
+    }
     public void WriteMetadata(string id)
     {
         var doc=db.Doc(id)??throw new KeyNotFoundException();
         var pages=db.Rows("SELECT number,text,summary FROM pages WHERE doc_id=$i ORDER BY number",("$i",id));
         foreach(var page in pages) { page["analysis"]=JsonNode.Parse(page.S("summary"));page.Remove("summary"); }
         var data=new JsonObject{["schema_version"]=1,["document"]=doc,["pages"]=new JsonArray(pages.Select(x=>(JsonNode)x).ToArray()),["analysis_history"]=new JsonArray(db.Rows("SELECT page,model,analyzed_at FROM analyses WHERE doc_id=$i ORDER BY page",("$i",id)).Select(x=>(JsonNode)x).ToArray()),["updated_at"]=Database.Now};
+        data["scans"]=new JsonArray(db.Rows("SELECT scan_id,scanned,device,source FROM scan_submissions WHERE doc_id=$i ORDER BY scanned",("$i",id)).Select(x=>(JsonNode)x).ToArray());
         string directory=Path.Combine(Root,".scanarchive-metadata");Directory.CreateDirectory(directory);
         if(File.GetAttributes(directory).HasFlag(FileAttributes.ReparsePoint))throw new IOException("元数据目录不能是链接。");
         string file=Path.Combine(directory,id+".json");File.WriteAllText(file+".tmp",data.ToJsonString(AppSettings.Json));File.Move(file+".tmp",file,true);
@@ -168,6 +195,7 @@ public sealed class Documents(AppSettings settings, Database db)
     public async Task<string> Split(string id,int first,int last,string title,CancellationToken ct)
     {
         var doc=db.Doc(id)??throw new KeyNotFoundException();
+        if(doc.S("status")=="deleted")throw new InvalidOperationException("文档已在回收站。");
         if(!doc.S("original").EndsWith(".pdf",StringComparison.OrdinalIgnoreCase))throw new ArgumentException("只有 PDF 可拆分页。");
         using var source=PdfReader.Open(doc.S("original"),PdfDocumentOpenMode.Import);
         if(first<1||last<first||last>source.PageCount)throw new ArgumentException("页码范围无效。");

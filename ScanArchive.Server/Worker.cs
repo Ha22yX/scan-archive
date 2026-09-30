@@ -4,7 +4,6 @@ namespace ScanArchive.Server;
 
 public sealed class Worker(AppSettings settings,Database db,Documents docs,Analyzer analyzer,SecretaryAgent agent,OpenAi ai,ILogger<Worker> logger):BackgroundService
 {
-    DateTime nextDiscover=DateTime.MinValue;
     public static string? DueWake(ServerOptions options,string? last,DateTime now)
     {
         if(!options.ScheduleEnabled||!TimeOnly.TryParseExact(options.DailyWakeTime,"HH:mm",out var time))return null;
@@ -23,8 +22,6 @@ public sealed class Worker(AppSettings settings,Database db,Documents docs,Analy
             try
             {
                 settings.Reload();
-                await Outbox(stoppingToken);
-                if(DateTime.Now>=nextDiscover){await Discover(stoppingToken);nextDiscover=DateTime.Now.AddMinutes(2);}
                 string? due=DueWake(settings.Current,db.State("last_wake"),DateTime.Now);
                 if(due!=null){docs.Enqueue("review","daily:"+due);db.State("last_wake",due);}
                 if(ai.Available)
@@ -36,18 +33,6 @@ public sealed class Worker(AppSettings settings,Database db,Documents docs,Analy
             catch(OperationCanceledException)when(stoppingToken.IsCancellationRequested){break;}
             catch(Exception ex){logger.LogError(ex,"Background processing failed");db.Log("error",ex.Message);}
             await Task.Delay(2000,stoppingToken);
-        }
-    }
-    async Task Outbox(CancellationToken ct)
-    {
-        foreach(string file in Directory.EnumerateFiles(settings.Outbox,"*.json"))
-        {
-            try{
-                var item=JsonNode.Parse(await File.ReadAllTextAsync(file,ct))!;
-                if(!File.Exists(item.S("path")))continue;
-                await docs.Import(item.S("path"),item.S("scanned"),ct:ct);File.Delete(file);
-            }catch(IOException){ }
-            catch(Exception ex){db.Log("outbox",ex.Message);File.Move(file,file+".failed",true);}
         }
     }
     public async Task<int> Discover(CancellationToken ct)
@@ -67,7 +52,12 @@ public sealed class Worker(AppSettings settings,Database db,Documents docs,Analy
     async Task Process(JsonObject job,CancellationToken ct)
     {
         string id=job.S("id"),payload=job.S("payload"),kind=job.S("kind");
-        db.Exec("UPDATE jobs SET status='running',attempts=attempts+1,updated=$t WHERE id=$i",("$t",Database.Now),("$i",id));
+        await docs.Mutation.WaitAsync(ct);
+        try
+        {
+            if(db.Exec("UPDATE jobs SET status='running',attempts=attempts+1,updated=$t WHERE id=$i AND status='pending'",("$t",Database.Now),("$i",id))==0)return;
+        }
+        finally{docs.Mutation.Release();}
         try
         {
             switch(kind)

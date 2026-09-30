@@ -19,6 +19,7 @@ builder.Services.AddSingleton(settings);
 builder.Services.AddSingleton<Database>();builder.Services.AddSingleton<Documents>();builder.Services.AddSingleton<Search>();builder.Services.AddSingleton<Analyzer>();builder.Services.AddSingleton<SecretaryAgent>();
 builder.Services.AddHttpClient<OpenAi>(http=>http.Timeout=TimeSpan.FromMinutes(4));
 builder.Services.AddSingleton<Worker>();builder.Services.AddHostedService(sp=>sp.GetRequiredService<Worker>());
+builder.Services.AddSingleton<CaptureCoordinator>();builder.Services.AddHostedService<DesktopBridge>();
 builder.Services.AddDataProtection().PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(settings.DataRoot,"keys"))).ProtectKeysWithDpapi();
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme).AddCookie(options=>{
     options.Cookie.Name="scanarchive_session";options.Cookie.HttpOnly=true;options.Cookie.SameSite=SameSiteMode.Strict;
@@ -91,7 +92,7 @@ api.MapPost("/settings",(JsonObject body,Database db)=>{
 api.MapPost("/test-api",async(OpenAi ai,CancellationToken ct)=>{
     var result=await ai.Structured("Return ok=true.",new JsonArray(new JsonObject{["type"]="input_text",["text"]="Connection test"}),new JsonObject{["type"]="object",["properties"]=new JsonObject{["ok"]=new JsonObject{["type"]="boolean"}},["required"]=new JsonArray("ok"),["additionalProperties"]=false},"connection_test",ct);return result;
 });
-api.MapGet("/documents",(string? q,string? status,string? category,int? offset,Database db)=>db.Rows("SELECT id,title,category,summary,tags,scanned,document_date,status,error,page_count,parent_id,source_pages,mixed_content,locked FROM documents WHERE ($s='' OR status=$s) AND ($c='' OR category=$c) AND ($q='' OR instr(lower(title||' '||summary||' '||tags),lower($q))>0) ORDER BY scanned DESC LIMIT 100 OFFSET $o",("$s",status??""),("$c",category??""),("$q",q??""),("$o",Math.Max(0,offset??0))));
+api.MapGet("/documents",(string? q,string? status,string? category,int? offset,Database db)=>db.Rows("SELECT id,title,category,summary,tags,scanned,document_date,status,error,page_count,parent_id,source_pages,mixed_content,locked FROM documents WHERE status<>'deleted' AND ($s='' OR status=$s) AND ($c='' OR category=$c) AND ($q='' OR instr(lower(title||' '||summary||' '||tags),lower($q))>0) ORDER BY scanned DESC LIMIT 100 OFFSET $o",("$s",status??""),("$c",category??""),("$q",q??""),("$o",Math.Max(0,offset??0))));
 api.MapGet("/documents/{id}",(string id,Database db)=>new{document=db.Doc(id)??throw new KeyNotFoundException(),pages=db.Rows("SELECT number,text,summary FROM pages WHERE doc_id=$i ORDER BY number",("$i",id)),children=db.Rows("SELECT id,title,source_pages,status FROM documents WHERE parent_id=$i",("$i",id))});
 api.MapGet("/documents/{id}/file",(string id,Database db)=>{
     var doc=db.Doc(id)??throw new KeyNotFoundException();string path=doc.S("original");string type=path.EndsWith(".pdf",StringComparison.OrdinalIgnoreCase)?"application/pdf":path.EndsWith(".png",StringComparison.OrdinalIgnoreCase)?"image/png":"image/jpeg";
@@ -116,6 +117,9 @@ api.MapPost("/upload",async(HttpRequest request,Documents docs,CancellationToken
 }).DisableAntiforgery();
 api.MapGet("/search",async(string q,string? category,string? from,string? to,Search search,CancellationToken ct)=>await search.Find(q,category??"",from??"",to??"",20,ct));
 api.MapGet("/categories",(Documents docs)=>docs.Folders());
+api.MapGet("/trash",(Database db)=>db.Rows("SELECT d.id,d.title,t.deleted_at FROM documents d JOIN trash t ON t.doc_id=d.id ORDER BY t.deleted_at DESC"));
+api.MapPost("/documents/{id}/trash",async(string id,Documents docs,CancellationToken ct)=>{await docs.Trash(id,ct);return Results.Ok();});
+api.MapPost("/documents/{id}/restore",async(string id,Documents docs,CancellationToken ct)=>{await docs.Restore(id,ct);return Results.Ok();});
 api.MapGet("/activity",(Database db)=>new{activity=db.Rows("SELECT * FROM activity ORDER BY id DESC LIMIT 150"),operations=db.Rows("SELECT * FROM operations ORDER BY created DESC LIMIT 100"),jobs=db.Rows("SELECT * FROM jobs ORDER BY created DESC LIMIT 100")});
 api.MapPost("/operations/{id}/undo",async(string id,Documents docs,CancellationToken ct)=>{await docs.Undo(id,ct);return Results.Ok();});
 api.MapPost("/jobs/{id}/retry",(string id,Database db)=>{db.Exec("UPDATE jobs SET status='pending',next_run=$t,error='' WHERE id=$i AND status='failed'",("$t",Database.Now),("$i",id));return Results.Ok();});

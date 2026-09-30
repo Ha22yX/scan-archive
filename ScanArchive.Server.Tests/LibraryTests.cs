@@ -65,10 +65,52 @@ public sealed class FakeApi:HttpMessageHandler
 
 public class LibraryTests
 {
+    [Fact] public async Task ScanHandoffSurvivesLostAcknowledgementAndFileRename()
+    {
+        var f=new LibraryFixture();var coordinator=new CaptureCoordinator(f.Settings,f.Db,f.Docs);
+        var request=new JsonObject{["command"]="register_scan",["scanId"]=Guid.NewGuid().ToString("N"),["path"]=f.Pdf(),["scanned"]="2026-09-30T00:22:53.8402090Z",["device"]="Brother test",["source"]="feeder"};
+        string id=(await coordinator.Handle(request,CancellationToken.None)).S("id");
+        await f.Docs.Move(id,"讲义","学习","test");
+        f.Db.Exec("UPDATE scan_submissions SET doc_id='' WHERE scan_id=$i",("$i",request.S("scanId")));
+        Assert.Equal(id,(await coordinator.Handle(request,CancellationToken.None)).S("id"));
+        Assert.Single(f.Db.Rows("SELECT * FROM documents"));Assert.Single(f.Db.Rows("SELECT * FROM jobs WHERE kind='index'"));
+        var metadata=JsonNode.Parse(File.ReadAllText(Path.Combine(f.Docs.Root,".scanarchive-metadata",id+".json")))!;
+        Assert.Equal("feeder",metadata["scans"]![0]!.S("source"));Assert.Equal(request.S("scanned"),metadata["scans"]![0]!.S("scanned"));
+    }
+    [Fact] public async Task DesktopPipeReturnsTheSameRegisteredLibraryAndTrashIsReversible()
+    {
+        var f=new LibraryFixture();var coordinator=new CaptureCoordinator(f.Settings,f.Db,f.Docs);
+        using var bridge=new DesktopBridge(f.Settings,coordinator,Microsoft.Extensions.Logging.Abstractions.NullLogger<DesktopBridge>.Instance);
+        await bridge.StartAsync(CancellationToken.None);
+        try
+        {
+            var receipt=await ScanArchive.Integration.DesktopProtocol.Request(f.Settings.DataRoot,new JsonObject{["command"]="register_scan",["scanId"]=Guid.NewGuid().ToString("N"),["path"]=f.Pdf(),["scanned"]=DateTimeOffset.UtcNow.ToString("O")});string id=receipt.S("id");
+            await f.Analyzer.Analyze(id,CancellationToken.None);
+            var library=await ScanArchive.Integration.DesktopProtocol.Request(f.Settings.DataRoot,new JsonObject{["command"]="library"});Assert.Equal(id,library["documents"]![0]!.S("id"));
+            await ScanArchive.Integration.DesktopProtocol.Request(f.Settings.DataRoot,new JsonObject{["command"]="trash",["id"]=id});
+            Assert.Empty((await f.Search.Find("INV-00317"))["results"]!.AsArray());
+            Assert.Empty((await coordinator.Handle(new JsonObject{["command"]="library"},CancellationToken.None))["documents"]!.AsArray());
+            await f.Docs.Restore(id,CancellationToken.None);Assert.NotEmpty((await f.Search.Find("INV-00317"))["results"]!.AsArray());Assert.True(File.Exists(f.Db.Doc(id)!.S("original")));
+        }
+        finally{await bridge.StopAsync(CancellationToken.None);}
+    }
+    [Fact] public async Task BackgroundWorkerDoesNotDiscoverUnregisteredFiles()
+    {
+        var f=new LibraryFixture();f.Pdf();
+        using var worker=new Worker(f.Settings,f.Db,f.Docs,f.Analyzer,f.Agent,f.Ai,Microsoft.Extensions.Logging.Abstractions.NullLogger<Worker>.Instance);
+        await worker.StartAsync(CancellationToken.None);await Task.Delay(2300);await worker.StopAsync(CancellationToken.None);
+        Assert.Empty(f.Db.Rows("SELECT * FROM documents"));Assert.Equal(0,f.Fake.PageCalls);
+    }
+    [Fact] public async Task MismatchedArchiveRootRejectsHandoffWithoutAcknowledging()
+    {
+        var f=new LibraryFixture();var coordinator=new CaptureCoordinator(f.Settings,f.Db,f.Docs);
+        await Assert.ThrowsAsync<ArgumentException>(()=>coordinator.Handle(new JsonObject{["command"]="register_scan",["scanId"]=Guid.NewGuid().ToString("N"),["path"]=Path.Combine(f.Root,"outside.pdf"),["scanned"]=DateTimeOffset.UtcNow.ToString("O")},CancellationToken.None));
+        Assert.Empty(f.Db.Rows("SELECT * FROM scan_submissions"));
+    }
     [Fact] public async Task ImportDeduplicatesAndPreservesOriginalAndScanTimestamp()
     {
         var f=new LibraryFixture();string path=f.Pdf();string scan="2026-09-29T23:00:00.0000000Z";string id=await f.Docs.Import(path,scan);
-        Assert.Equal(id,await f.Docs.Import(path));var d=f.Db.Doc(id)!;Assert.Equal(scan,d.S("scanned"));Assert.True(File.Exists(d.S("original")));Assert.Equal(1,f.Db.Rows("SELECT * FROM documents").Count);
+        Assert.Equal(id,await f.Docs.Import(path));var d=f.Db.Doc(id)!;Assert.Equal(scan,d.S("scanned"));Assert.True(File.Exists(d.S("original")));Assert.Single(f.Db.Rows("SELECT * FROM documents"));
         Assert.Equal(File.ReadAllBytes(path),File.ReadAllBytes(d.S("original")));
     }
     [Fact] public async Task MoveAndUndoPreserveIdentityAndRecoverJournalAfterCrash()

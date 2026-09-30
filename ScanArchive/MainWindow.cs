@@ -1,4 +1,7 @@
 using System.Diagnostics;
+using System.Text.Json.Nodes;
+using Microsoft.Web.WebView2.Core;
+using Microsoft.Web.WebView2.WinForms;
 
 namespace ScanArchive;
 
@@ -29,6 +32,12 @@ public sealed class MainWindow : Form
     readonly Panel content = new() { Dock = DockStyle.Fill };
     readonly Button homeNav = NavButton("主页");
     readonly Button settingsNav = NavButton("设置");
+    readonly Button libraryNav = NavButton("文档库");
+    readonly Button agentNav = NavButton("秘书");
+    readonly System.Windows.Forms.Timer libraryTimer=new(){Interval=3000};
+    WebView2? libraryView;
+    bool synchronizing,refreshingFiles;
+    string librarySignature="";
     Control? homePage;
     Control? settingsPage;
     Settings settings = new();
@@ -59,6 +68,7 @@ public sealed class MainWindow : Form
         try
         {
             var prefs = SecretaryIntegration.Preferences();
+            if(prefs["libraryRoot"] is JsonValue libraryRoot){settings.Root=libraryRoot.ToString();root.Text=settings.Root;}
             wakeTime.Value = DateTime.Today.Add(TimeOnly.Parse(prefs["dailyWakeTime"]?.ToString() ?? "05:00").ToTimeSpan());
             scheduledAgent.Checked = prefs["scheduleEnabled"]?.GetValue<bool>() ?? true;
             autoAgent.Checked = prefs["autoOrganize"]?.GetValue<bool>() ?? true;
@@ -69,18 +79,21 @@ public sealed class MainWindow : Form
 
         var nav = new Panel { Dock = DockStyle.Top, Height = 68, Padding = new Padding(24, 12, 24, 8), BackColor = Color.White };
         nav.Controls.Add(new Label { Text = "扫描归档", Dock = DockStyle.Left, Width = 190, Font = new Font(Font.FontFamily, 18, FontStyle.Bold), TextAlign = ContentAlignment.MiddleLeft });
-        var navButtons = new FlowLayoutPanel { Dock = DockStyle.Right, Width = 180, FlowDirection = FlowDirection.LeftToRight, WrapContents = false };
-        navButtons.Controls.AddRange([homeNav, settingsNav]);
+        var navButtons = new FlowLayoutPanel { Dock = DockStyle.Right, Width = 360, FlowDirection = FlowDirection.LeftToRight, WrapContents = false };
+        navButtons.Controls.AddRange([homeNav, libraryNav, agentNav, settingsNav]);
         nav.Controls.Add(navButtons);
         Controls.Add(content);
         Controls.Add(nav);
 
         homeNav.Click += async (_, _) => { ShowHome(); await RefreshFiles(); };
         settingsNav.Click += (_, _) => ShowSettings();
+        libraryNav.Click += async (_, _) => await ShowLibrary("library");
+        agentNav.Click += async (_, _) => await ShowLibrary("agent");
         scan.Click += async (_, _) => { if (busy) cancellation?.Cancel(); else await Scan(); };
         files.Columns.Add("文件名", 250);
         files.Columns.Add("扫描时间", 145);
         files.Columns.Add("大小", 75);
+        files.Columns.Add("处理状态",110);
         files.Resize += (_, _) => ResizeFileColumns();
         files.DoubleClick += (_, _) => OpenSelected();
         files.SelectedIndexChanged += (_, _) => PreviewSelected();
@@ -94,10 +107,40 @@ public sealed class MainWindow : Form
         pdfNavigation.Controls.AddRange([previousPage, pageNumber, nextPage]);
         previousPage.Click += (_, _) => ChangePdfPage(-1);
         nextPage.Click += (_, _) => ChangePdfPage(1);
-        Shown += async (_, _) => { await SecretaryIntegration.EnsureStarted(); await LoadDevices(); ShowHome(); await RefreshFiles(); };
+        Shown += async (_, _) => { await Synchronize(); await LoadDevices(); ShowHome(); await RefreshFiles();libraryTimer.Start(); };
+        libraryTimer.Tick += async (_, _) => await Synchronize();
         FormClosing += (_, e) => { if (busy) { e.Cancel = true; MessageBox.Show("请等待当前页完成，程序会保存已经扫描的页面。", "正在扫描"); } };
-        FormClosed += (_, _) => ClosePdf();
+        FormClosed += (_, _) => {libraryTimer.Dispose();libraryView?.Dispose();ClosePdf();};
         ShowHome();
+    }
+
+    async Task Synchronize()
+    {
+        if(synchronizing)return;synchronizing=true;
+        try{await SecretaryIntegration.EnsureStarted();await SecretaryIntegration.FlushScans();await RefreshFiles();}
+        catch(Exception ex){listTitle.Text=$"文档库连接中 · {SecretaryIntegration.PendingCount} 份待交接";if(!busy)status.Text=ex.Message;}
+        finally{synchronizing=false;}
+    }
+
+    async Task ShowLibrary(string page)
+    {
+        try
+        {
+            await SecretaryIntegration.EnsureStarted();
+            content.Controls.Clear();content.Padding=Padding.Empty;
+            libraryView??=new WebView2{Dock=DockStyle.Fill};content.Controls.Add(libraryView);
+            if(libraryView.CoreWebView2==null)
+            {
+                var environment=await CoreWebView2Environment.CreateAsync(null,Path.Combine(SecretaryIntegration.DataRoot,"WebView2"));
+                await libraryView.EnsureCoreWebView2Async(environment);
+                libraryView.CoreWebView2!.Settings.AreDevToolsEnabled=false;
+                libraryView.CoreWebView2.NavigationStarting+=(_,e)=>{if(!Uri.TryCreate(e.Uri,UriKind.Absolute,out var uri)||uri.Host!="localhost"||uri.Port!=5278)e.Cancel=true;};
+                libraryView.CoreWebView2.NewWindowRequested+=(_,e)=>{e.Handled=true;if(Uri.TryCreate(e.Uri,UriKind.Absolute,out var uri)&&uri.Host=="localhost"&&uri.Port==5278)libraryView.CoreWebView2.Navigate(e.Uri);};
+            }
+            libraryView.CoreWebView2.Navigate("http://localhost:5278/#"+page);
+            SetActiveNav(page=="agent"?agentNav:libraryNav);
+        }
+        catch(Exception ex){ShowHome();MessageBox.Show("内置文档库无法打开："+ex.Message,"文档库");}
     }
 
     void ShowHome()
@@ -166,9 +209,9 @@ public sealed class MainWindow : Form
             AddSetting(form, 5, "OpenAI Key", apiKey, new Label { Text = SecretaryIntegration.HasKey ? "已配置密钥" : "尚未配置", AutoSize = true, Padding = new Padding(0, 8, 0, 0) });
             AddSetting(form, 6, "每日唤醒", wakeTime, scheduledAgent);
             AddSetting(form, 7, "文档秘书", autoAgent, new Label());
-            AddSetting(form, 8, "网页管理", new Label { Text = "文档搜索 · Agent 对话 · 整理记录", AutoSize = true, Padding = new Padding(0, 8, 0, 0) }, SecondaryButton("打开面板", async () => await SecretaryIntegration.OpenPanel()));
+            AddSetting(form, 8, "文档库", new Label { Text = "共用文档记录 · 搜索 · 秘书 · 整理状态", AutoSize = true, Padding = new Padding(0, 8, 0, 0) }, SecondaryButton("打开文档库", async () => await ShowLibrary("library")));
             var save = PrimaryButton("保存设置", 130, 42);
-            save.Click += (_, _) => { try { SaveSettings(); SecretaryIntegration.Save(settings.Root, apiKey.Text, wakeTime.Value.ToString("HH:mm"), scheduledAgent.Checked, autoAgent.Checked); apiKey.Clear(); MessageBox.Show("设置已保存。", "扫描归档"); } catch (Exception ex) { MessageBox.Show(ex.Message, "无法保存设置"); } };
+            save.Click += (_, _) => { try { SecretaryIntegration.Save(root.Text, apiKey.Text, wakeTime.Value.ToString("HH:mm"), scheduledAgent.Checked, autoAgent.Checked);SaveSettings(); apiKey.Clear(); MessageBox.Show("设置已保存。", "扫描归档"); } catch (Exception ex) { MessageBox.Show(ex.Message, "无法保存设置"); } };
             form.Controls.Add(save, 1, 9);
             page.Controls.Add(form);
             page.Controls.Add(heading);
@@ -213,7 +256,7 @@ public sealed class MainWindow : Form
 
     void SetActiveNav(Button active)
     {
-        foreach (var button in new[] { homeNav, settingsNav })
+        foreach (var button in new[] { homeNav, libraryNav, agentNav, settingsNav })
         {
             button.BackColor = button == active ? Color.FromArgb(239, 246, 255) : Color.White;
             button.ForeColor = button == active ? Accent : Color.FromArgb(71, 85, 105);
@@ -270,6 +313,8 @@ public sealed class MainWindow : Form
         try
         {
             if (devices.SelectedItem is not ScannerDevice device) throw new Exception("请先在设置中选择扫描设备。");
+            var prefs=SecretaryIntegration.Preferences();
+            if(prefs["libraryRoot"]!=null)root.Text=prefs["libraryRoot"]!.ToString();
             SaveSettings();
             Directory.CreateDirectory(settings.Root);
             string probe = Path.Combine(settings.Root, Guid.NewGuid() + ".tmp");
@@ -288,15 +333,21 @@ public sealed class MainWindow : Form
             if (result.Pages.Count == 0) { status.Text = "已停止，没有扫描文件"; return; }
             ShowPreview(CreatePreview(result.Pages[0]), $"本次扫描 · {result.Pages.Count} 页");
             string saved = await Task.Run(() => Archive.Save(settings.Root, settings.Format, result.Pages, result.ActualDpi, started));
-            try { SecretaryIntegration.Notify(saved, started); }
-            catch (Exception ex) { status.Text = "文件已保存，后台将在检查文档库时补处理：" + ex.Message; }
+            string handoff;
+            try
+            {
+                SecretaryIntegration.QueueScan(saved,started,device.Id,settings.Feeder?"feeder":"flatbed");
+                try{await SecretaryIntegration.FlushScans();handoff="已交给文档库分析";}
+                catch{handoff="等待文档库连接，将自动重试交接";}
+            }
+            catch(Exception ex){throw new IOException("扫描文件已保存于 "+saved+"，但交接事件保存失败，请在文档库手动导入。",ex);}
             if (result.Warning == null)
             {
                 foreach (string page in result.Pages) File.Delete(page);
                 Directory.Delete(temp);
             }
             string adjusted = result.ActualDpi == settings.Dpi ? "" : $" · {result.ActualDpi} DPI";
-            status.Text = $"{(result.Warning == null ? "扫描完成" : "扫描中断，已部分保存")} · {result.Pages.Count} 页{adjusted} · {Path.GetFileName(saved)}";
+            status.Text = $"{(result.Warning == null ? "扫描完成" : "扫描中断，已部分保存")} · {result.Pages.Count} 页{adjusted} · {handoff}";
             await RefreshFiles();
             if (result.Warning != null)
                 MessageBox.Show(result.Warning + "\n\n归档文件：\n" + saved + "\n\n原始页面保留在：\n" + temp,
@@ -337,37 +388,46 @@ public sealed class MainWindow : Form
     async Task RefreshFiles()
     {
         int version = ++refreshVersion;
-        string directory = settings.Root;
         try
         {
-            var found = await Task.Run(() => Directory.Exists(directory)
-                ? Directory.EnumerateFiles(directory, "*", new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true, AttributesToSkip = FileAttributes.ReparsePoint })
-                    .Where(p => !Path.GetRelativePath(directory, p).Split(Path.DirectorySeparatorChar).Any(part => part.StartsWith('.')) && new[] { ".pdf", ".png", ".jpg", ".jpeg" }.Contains(Path.GetExtension(p).ToLowerInvariant()))
-                    .Select(p => new FileInfo(p)).OrderByDescending(p => p.CreationTimeUtc).ToList() : []);
+            var found=await SecretaryIntegration.Library();
             if (version != refreshVersion) return;
+            int today=found.Count(f=>DateTimeOffset.TryParse(f["scanned"]?.ToString(),out var when)&&when.LocalDateTime.Date==DateTime.Today);
+            listTitle.Text=$"文档库 · 今天 {today} 份 · 待交接 {SecretaryIntegration.PendingCount}";
+            string signature=string.Join('|',found.Select(f=>f.ToJsonString()));
+            if(signature==librarySignature)return;librarySignature=signature;
+            string? selected=files.SelectedItems.Count>0?((JsonObject)files.SelectedItems[0].Tag!)["id"]?.ToString():null;
+            refreshingFiles=true;
             files.BeginUpdate();
             files.Items.Clear();
             foreach (var file in found)
-                files.Items.Add(new ListViewItem([file.Name, file.CreationTime.ToString("yyyy-MM-dd HH:mm:ss"), $"{file.Length / 1024.0:N0} KB"]) { Tag = file.FullName });
+            {
+                string path=file["original"]!.ToString();long length=File.Exists(path)?new FileInfo(path).Length:0;
+                string time=DateTimeOffset.TryParse(file["scanned"]?.ToString(),out var scanned)?scanned.LocalDateTime.ToString("yyyy-MM-dd HH:mm:ss"):"";
+                var item=new ListViewItem([file["title"]!.ToString(),time,$"{length/1024.0:N0} KB",PipelineStatus(file["status"]!.ToString())]){Tag=file};
+                files.Items.Add(item);if(file["id"]?.ToString()==selected)item.Selected=true;
+            }
             files.EndUpdate();
-            int today = found.Count(f => f.CreationTime.Date == DateTime.Today);
-            listTitle.Text = $"扫描文件 · 今天 {today} 份";
+            refreshingFiles=false;
         }
         catch (Exception ex) { if (!busy) status.Text = "读取归档失败：" + ex.Message; }
+        finally{refreshingFiles=false;}
     }
+
+    static string PipelineStatus(string value)=>value switch{"queued"=>"等待分析","analyzing"=>"内容分析中","indexing"=>"建立搜索索引","analyzed"=>"等待秘书整理","ready"=>"已归档","error"=>"处理失败",_=>value};
 
     void ResizeFileColumns()
     {
-        if (files.Columns.Count != 3 || files.ClientSize.Width < 260) return;
+        if (files.Columns.Count != 4 || files.ClientSize.Width < 260) return;
         files.Columns[2].Width = 75;
-        files.Columns[1].Width = 145;
-        files.Columns[0].Width = Math.Max(140, files.ClientSize.Width - 224);
+        files.Columns[1].Width = 145;files.Columns[3].Width=110;
+        files.Columns[0].Width = Math.Max(140, files.ClientSize.Width - 334);
     }
 
     void PreviewSelected()
     {
-        if (files.SelectedItems.Count == 0) return;
-        string path = (string)files.SelectedItems[0].Tag!;
+        if (refreshingFiles||files.SelectedItems.Count == 0) return;
+        string path = ((JsonObject)files.SelectedItems[0].Tag!)["original"]!.ToString();
         if (Path.GetExtension(path).Equals(".pdf", StringComparison.OrdinalIgnoreCase))
         {
             OpenPdfPreview(path);
@@ -427,28 +487,25 @@ public sealed class MainWindow : Form
         pdfNavigation.Visible = false;
     }
 
-    void OpenSelected() { if (files.SelectedItems.Count > 0) Open((string)files.SelectedItems[0].Tag!); }
+    void OpenSelected() { if (files.SelectedItems.Count > 0) Open(((JsonObject)files.SelectedItems[0].Tag!)["original"]!.ToString()); }
 
     async Task DeleteSelected()
     {
         if (files.SelectedItems.Count == 0) return;
-        string path = (string)files.SelectedItems[0].Tag!;
-        if (!File.Exists(path)) { await RefreshFiles(); return; }
-        var answer = MessageBox.Show($"要删除这个扫描文件吗？\n\n{Path.GetFileName(path)}\n\n文件将移入 Windows 回收站。",
+        var doc=(JsonObject)files.SelectedItems[0].Tag!;string title=doc["title"]!.ToString();
+        var answer = MessageBox.Show($"要删除这个扫描文件吗？\n\n{title}\n\n移入应用回收站后，桌面和网页会同步隐藏，可在整理记录中恢复。",
             "删除扫描文件", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2);
         if (answer != DialogResult.Yes) return;
         try
         {
             ClosePdf();
-            Microsoft.VisualBasic.FileIO.FileSystem.DeleteFile(path,
-                Microsoft.VisualBasic.FileIO.UIOption.OnlyErrorDialogs,
-                Microsoft.VisualBasic.FileIO.RecycleOption.SendToRecycleBin);
+            await SecretaryIntegration.Trash(doc["id"]!.ToString());
             preview.Image?.Dispose();
             preview.Image = null;
             previewHint.Text = "扫描完成后在这里预览";
             previewHint.Visible = true;
             previewHint.BringToFront();
-            status.Text = $"已移入回收站 · {Path.GetFileName(path)}";
+            status.Text = $"已移入应用回收站 · {title}";
             await RefreshFiles();
         }
         catch (Exception ex) { MessageBox.Show("无法删除文件：\n" + ex.Message, "删除失败", MessageBoxButtons.OK, MessageBoxIcon.Error); }

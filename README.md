@@ -11,7 +11,7 @@
 
 ![Web document library with synthetic test data](docs/screenshots/web-library.png)
 
-A focused Windows scanning desk with PDF page navigation, accompanied by a responsive browser dashboard for your computer and local network. The interface is currently in Simplified Chinese.
+One Windows application with Scan, Library, Secretary and Settings navigation. The library and agent are embedded with WebView2; the browser and LAN dashboard are additional views of the same records and background core. The interface is currently in Simplified Chinese.
 
 ## Why this exists
 
@@ -34,9 +34,9 @@ cd scan-archive
 2. Open **http://localhost:5278**. On the service computer, create a password of at least 10 characters for the web dashboard.
 3. Enter your OpenAI API key in desktop or web settings. The web settings also expose analysis/agent and embedding models, request limits and long-term instructions. Default models are `gpt-6-astra` and `text-embedding-3-large`; choose models your account supports.
 4. Enable automatic organization and choose a daily wake time (default **05:00**, using Windows local time).
-5. Scan. The desktop saves the capture to `Inbox`, then the background service analyzes every page, builds the index, and queues the secretary to organize it.
+5. Scan. The desktop saves the capture to `Inbox`, then submits a durable scan event directly to the core over a Windows named pipe restricted to the current user. The core acknowledges the document ID, analyzes every page, builds the index, and queues the secretary. Desktop and web lists read the same database and update automatically.
 
-The service starts with the desktop application. You can also run `scripts/start-secretary.ps1`. Closing the scanner window leaves the service running. To opt into Windows sign-in startup, run `scripts/enable-startup.ps1`; use `-Disable` to remove it. The computer must be awake and the archive drive available. A missed daily review is caught up once when the service resumes; this is not a wake-from-sleep task or a pre-login Windows service.
+The core starts with the desktop application. An interrupted handoff stays in the desktop outbox and is retried while the application is open, including after restart. Both interfaces use the same archive root; changing the web configuration cannot silently send the next scan to an old desktop folder. The desktop file list shows analysis/organization states, not directory contents. Right-click deletion moves a record into the application recycle bin, hides it in both interfaces and search, and retains its bytes; restore it from Activity. Files under active processing cannot be trashed until that task ends. The embedded browser uses the same library password (first sign-in is separate from an external browser). Windows needs the Microsoft Edge WebView2 Runtime. The service starts with the desktop application. You can also run `scripts/start-secretary.ps1`. Closing the scanner window leaves the service running. To opt into Windows sign-in startup, run `scripts/enable-startup.ps1`; use `-Disable` to remove it. The computer must be awake and the archive drive available. A missed daily review is caught up once when the service resumes; this is not a wake-from-sleep task or a pre-login Windows service.
 
 ### Local network access
 
@@ -69,10 +69,10 @@ Archive root/
   library.db                   # Search index, metadata, jobs, conversations and audit trail
   settings.json                # Non-secret configuration
   openai.secret                # API key encrypted for the current Windows account
-  outbox/                      # Durable capture notifications
+  outbox/                      # Desktop-owned capture events; removed only after acknowledgement
 ```
 
-The scan timestamp is separate from any date found in the document. Split children inherit that timestamp and retain the parent ID and original page range. Legacy date-folder files are discovered and can be reorganized; when no capture event exists, their filesystem creation time is used as a fallback, which may be inaccurate after copying. Exact byte duplicates share one document record. Metadata is available in the document details and as JSON beside the library; page checkpoints survive API failures.
+The scan timestamp is separate from any date found in the document. Split children inherit that timestamp and retain the parent ID and original page range. There is no automatic archive-directory crawling. Existing files enter through explicit web upload or the one-time manual legacy import command; when no capture event exists, their filesystem creation time is used as a fallback, which may be inaccurate after copying. Exact byte duplicates share one document record; individual capture events retain their own scan time, device and source. Events are idempotent even after an agent renames the file. Metadata is available in the document details and as JSON beside the library; page checkpoints survive API failures.
 
 **Back up both the archive root and the local Secretary data directory**, with the service stopped for a consistent database copy. Keeping originals on the same drive is recovery protection, not an independent backup. DPAPI secrets are bound to the Windows account: configure the API key again after migration. JSON exports preserve content and provenance, but a complete automated database restore from sidecars is not yet implemented.
 
@@ -81,7 +81,7 @@ The scan timestamp is separate from any date found in the document. Split childr
 - Desktop: C# / .NET 10 WinForms, WIA, NAPS2.Wia, PDFsharp and Docnet/PDFium.
 - Service: ASP.NET Core, SQLite/FTS5, plain JavaScript/CSS, no separate Node deployment.
 - AI: official OpenAI Responses API with structured analysis and a bounded tool loop; embeddings stored with model provenance. `store:false` is used for Responses requests; scan content is still transmitted to OpenAI for processing.
-- Reliability: durable job queue, per-page checkpoints, retry/backoff, daily request cap, lexical search when embeddings fail, recoverable move journal and protected original copies.
+- Reliability: durable job queue, direct idempotent capture handoff, per-page checkpoints, retry/backoff, daily request cap, lexical search when embeddings fail, recoverable move journal and protected original copies.
 - Access: password authentication, HTTP-only same-site cookies, same-origin mutation checks, DPAPI-protected key storage. API keys are not returned by settings endpoints.
 
 ```powershell

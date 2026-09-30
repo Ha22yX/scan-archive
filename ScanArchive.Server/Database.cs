@@ -20,6 +20,8 @@ public sealed class Database
                 locked INTEGER NOT NULL DEFAULT 0, parent_id TEXT NOT NULL DEFAULT '', source_pages TEXT NOT NULL DEFAULT '',mixed_content INTEGER NOT NULL DEFAULT 0);
             CREATE TABLE IF NOT EXISTS pages(doc_id TEXT NOT NULL, number INTEGER NOT NULL, text TEXT NOT NULL, summary TEXT NOT NULL DEFAULT '', PRIMARY KEY(doc_id,number));
             CREATE TABLE IF NOT EXISTS analyses(doc_id TEXT NOT NULL,page INTEGER NOT NULL,model TEXT NOT NULL,analyzed_at TEXT NOT NULL,PRIMARY KEY(doc_id,page));
+            CREATE TABLE IF NOT EXISTS scan_submissions(scan_id TEXT PRIMARY KEY,doc_id TEXT NOT NULL DEFAULT '',path TEXT NOT NULL,scanned TEXT NOT NULL,hash TEXT NOT NULL,device TEXT NOT NULL DEFAULT '',source TEXT NOT NULL DEFAULT '');
+            CREATE TABLE IF NOT EXISTS trash(doc_id TEXT PRIMARY KEY,previous_status TEXT NOT NULL,deleted_at TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS chunks(id INTEGER PRIMARY KEY AUTOINCREMENT,doc_id TEXT NOT NULL,page INTEGER NOT NULL,text TEXT NOT NULL,embedding TEXT,model TEXT NOT NULL DEFAULT '');
             CREATE INDEX IF NOT EXISTS chunks_doc ON chunks(doc_id);
             CREATE VIRTUAL TABLE IF NOT EXISTS search_fts USING fts5(chunk_id UNINDEXED,tokens,tokenize='unicode61');
