@@ -79,6 +79,8 @@ public class DesktopTests
     [Fact] public async Task SlowSearchDoesNotBlockDesktopLibraryOrScanHandoff()
     {
         var f=new LibraryFixture();var client=Client(f);var coordinator=new CaptureCoordinator(f.Settings,f.Db,f.Docs,client);
+        string indexed=await f.Docs.Import(f.Pdf("indexed.pdf",1));
+        f.Search.AddChunk(indexed,1,"Searchable test document",[1,0,0],f.Settings.Current.EmbeddingModel);
         using var bridge=new DesktopBridge(f.Settings,coordinator,Microsoft.Extensions.Logging.Abstractions.NullLogger<DesktopBridge>.Instance);
         f.Fake.EmbeddingEntered=new(TaskCreationOptions.RunContinuationsAsynchronously);f.Fake.ReleaseEmbedding=new(TaskCreationOptions.RunContinuationsAsynchronously);
         await bridge.StartAsync(default);
@@ -86,7 +88,10 @@ public class DesktopTests
             var searching=ScanArchive.Integration.DesktopProtocol.Request(f.Settings.DataRoot,new(){["command"]="search",["q"]="test"});
             await f.Fake.EmbeddingEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
             var browsing=await ScanArchive.Integration.DesktopProtocol.Request(f.Settings.DataRoot,new(){["command"]="browse"}).WaitAsync(TimeSpan.FromSeconds(3));
-            Assert.Equal(0,browsing.I("total"));f.Fake.ReleaseEmbedding.SetResult();await searching;
+            Assert.Equal(1,browsing.I("total"));Assert.False(searching.IsCompleted);
+            var handoff=await ScanArchive.Integration.DesktopProtocol.Request(f.Settings.DataRoot,new(){["command"]="register_scan",["scanId"]=Guid.NewGuid().ToString("N"),["path"]=f.Pdf("new-scan.pdf",2),["scanned"]=Database.Now}).WaitAsync(TimeSpan.FromSeconds(3));
+            Assert.NotEmpty(handoff.S("id"));Assert.False(searching.IsCompleted);
+            f.Fake.ReleaseEmbedding.SetResult();await searching;
         }finally{f.Fake.ReleaseEmbedding.TrySetResult();await bridge.StopAsync(default);}
     }
     [Fact] public async Task CancelledReindexKeepsPreviousSearchCoverage()

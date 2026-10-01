@@ -26,6 +26,7 @@ const now = '2026-09-30T10:24:00-04:00';
 const options={libraryRoot:'C:\\Documents\\ScanArchive',model:'gpt-6-astra',embeddingModel:'text-embedding-3-large',autoOrganize:true,scheduleEnabled:true,dailyWakeTime:'05:00',dailyRequestLimit:1000,agentMaxSteps:20,documentConcurrency:3,pageConcurrency:2,instructions:'按内容整理，保留完整原件。'};
 const documents = Array.from({length:14},(_,n)=>({id:n===0?id:n.toString(16).padStart(32,'0'),title:n===0?'设备保修凭证 · 合成演示资料':'合成文档 '+(n+1)+' · 学习笔记与家庭清单',category:n%2?'学习/物理':'生活/保修',summary:n===0?longMarkdown:'这份演示资料用于检查文件列表、筛选和状态呈现。',tags:'保修, 设备, 凭证',scanned:now,document_date:'2026-09-30',status:n===3?'analyzing':n===4?'error':'ready',error:n===4?'演示：网络暂时中断，请重试。':'',page_count:3,parent_id:n===0?parentId:'',source_pages:'1-3',locked:0}));
 let chatDelayMs=0, postedChat=[], requestLog=[], unhandled=[], outside=[], errors=[], messages=[{role:'user',text:'这份设备凭证什么时候过保？',created:now},{role:'assistant',text:longMarkdown,created:now}], savedSettings=[];
+let progressFixture=null, searchFixture=null;
 const conversationMessages={'conversation-demo':messages,'conversation-other':[{role:'user',text:'另一段合成对话',created:now},{role:'assistant',text:'这是会话 B，用于验证发送期间切换不会被打断。',created:now}]};
 const stats=()=>({configured:true,settings:options,overview:{counts:[{status:'ready',count:12},{status:'analyzing',count:1},{status:'error',count:1}],categories:[{category:'生活/保修',count:7},{category:'学习/物理',count:7}]},pending:[{kind:'index',status:'running',count:1}],usage:[],lastWake:now,addresses:['http://localhost:5278','http://192.168.1.20:5278']});
 const record={document:documents[0],pages:[1,2,3].map(number=>({number,text:`合成资料，第 ${number} 页`,summary:JSON.stringify({summary:fixtureText,topics:['设备保修','售后服务'],entities:['合成机构'],dates_and_numbers:['24个月'],readability:'清晰'})})),children:[]};
@@ -55,11 +56,11 @@ const server=http.createServer((req,res)=>{
    if(endpoint==='/status')return json(stats());
    if(endpoint==='/categories')return json([{category:'生活/保修',count:7},{category:'学习/物理',count:7}]);
    if(endpoint==='/documents')return json(documents.filter(d=>(!url.searchParams.get('status')||d.status===url.searchParams.get('status'))&&(!url.searchParams.get('category')||d.category===url.searchParams.get('category'))).slice(Number(url.searchParams.get('offset'))||0));
-   if(endpoint==='/search')return json({mode:'hybrid',results:[{...documents[0],doc_id:id,page:2,snippet:'设备保修期限为24个月，购买日期可在原文核对。'}]});
+   if(endpoint==='/search')return json(searchFixture||{mode:'hybrid',results:[{...documents[0],doc_id:id,page:2,snippet:'设备保修期限为24个月，购买日期可在原文核对。'}]});
    if(/^\/documents\/[^/]+\/pages\/\d+$/.test(endpoint))return route.fulfill({status:200,contentType:'image/svg+xml',body:pageSvg(endpoint.split('/').at(-1))});
    if(/^\/documents\/[^/]+$/.test(endpoint)){const selected=documents.find(d=>d.id===endpoint.split('/').at(-1))||{...documents[0],id:parentId,title:'原始扫描合集',status:'superseded',parent_id:''};return json({...record,document:selected});}
    if(endpoint==='/conversations')return json([{id:'conversation-demo',title:'设备凭证什么时候过保？',created:now},{id:'conversation-other',title:'另一段合成对话',created:now}]);
-   if(endpoint.startsWith('/conversations/'))return json({messages:conversationMessages[endpoint.split('/').at(-1)]||[],jobs:[{status:'done'}]});
+   if(endpoint.startsWith('/conversations/'))return json({messages:conversationMessages[endpoint.split('/').at(-1)]||[],progress:progressFixture,jobs:[{status:progressFixture?'running':'done'}]});
    if(endpoint==='/chat'&&method==='POST'){const body=request.postDataJSON();postedChat.push(body);const conversation=body.conversation||'conversation-demo';if(chatDelayMs)await new Promise(resolve=>setTimeout(resolve,chatDelayMs));conversationMessages[conversation].push({role:'user',text:body.message,created:now},{role:'assistant',text:'已收到合成测试消息。**可以继续提问。**',created:now});return json({conversation,job:'mock-job'});}
    if(endpoint==='/activity')return json(activity);
    if(endpoint==='/trash')return json([{id:'trash-demo',title:'已删除的合成资料',deleted_at:now}]);
@@ -165,11 +166,23 @@ const server=http.createServer((req,res)=>{
      await page.locator('#chat-input').evaluate(input=>input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',ctrlKey:true,isComposing:true,bubbles:true,cancelable:true})));
      await page.waitForTimeout(80);assert.equal(postedChat.length,before);
    });
+   await check('agent work progress shows source-check count and plan without covering composer',async()=>{
+     progressFixture={status:'running',phase:'正在比较文档关系',pages_read:4,plan:{goal:'核实合成保修文件',steps:['检索候选','检查原页','核对结论'],completed:1,next:'检查原页'}};
+     await page.locator('[data-conversation="conversation-demo"]').click();await page.waitForFunction(()=>document.querySelector('#agent-state').textContent.includes('已核对 4 页'));
+     assert.ok((await page.locator('#agent-state').innerText()).includes('步骤 1/3'));assert.ok((await page.locator('#agent-state').getAttribute('title')).includes('核实合成保修文件'));await composerVisible();progressFixture=null;
+     await page.locator('[data-conversation="conversation-demo"]').click();await page.waitForFunction(()=>!document.querySelector('#send').disabled);
+   });
    await page.setViewportSize({width:390,height:844});await page.locator('[data-view="library"]').click();await check('mobile library no horizontal overflow',noOverflow);await screenshot('library-mobile');
    await page.locator('.document-card').first().click();await page.locator('#document-dialog').waitFor({state:'visible'});await check('mobile reader no horizontal overflow',noOverflow);await screenshot('reader-mobile');await page.locator('#close-document').click();
    await check('search results open the matching document page',async()=>{
      await page.locator('#query').fill('保修期限');await page.locator('#search-form').evaluate(form=>form.requestSubmit());await page.waitForFunction(()=>document.querySelector('#search-note')?.textContent.includes('相关'));
      await page.locator('.document-card').first().click();await page.locator('#document-dialog').waitFor({state:'visible'});assert.equal(await page.locator('#page-number').inputValue(),'2');await page.locator('#close-document').click();
+   });
+   await check('metadata-only search does not fabricate page zero or hide coverage warning',async()=>{
+     searchFixture={mode:'keyword',total:1,warning:'有 2 页尚无可搜索文字',results:[{...documents[0],doc_id:id,page:0,match_scope:'document',snippet:'文档信息匹配，需要核对原页。'}]};
+     await page.locator('#search-form').evaluate(form=>form.requestSubmit());await page.waitForFunction(()=>document.querySelector('.document-card')?.textContent.includes('文档信息匹配'));
+     assert.ok(!(await page.locator('.document-card').first().innerText()).includes('第 0 页'));assert.ok((await page.locator('#library-foot').innerText()).includes('2 页尚无可搜索文字'));
+     await page.locator('.document-card').first().click();await page.locator('#document-dialog').waitFor({state:'visible'});assert.equal(await page.locator('#page-number').inputValue(),'1');await page.locator('#close-document').click();searchFixture=null;
    });
    await page.locator('[data-view="activity"]').click();await check('mobile activity no horizontal overflow',noOverflow);await screenshot('activity-mobile');
    await check('merge undo describes restoring source scans rather than moving one file',async()=>{

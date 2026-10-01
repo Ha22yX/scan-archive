@@ -51,7 +51,7 @@ function documentCard(doc,hit=false){
  const card=el('button','','document-card');card.type='button';card.title=doc.title;card.dataset.docId=hit?doc.doc_id:doc.id;
  const icon=el('span','DOC','doc-icon'),content=el('div','','card-content');content.append(el('h3',doc.title),el('p',plainMarkdown(hit?doc.snippet:doc.summary)||'原件已保存，内容分析完成后会显示摘要。','card-description'));
  const meta=el('div','','card-meta');meta.append(el('span',doc.category||'等待分类','card-category'),el('span','扫描于 '+shortDate(doc.scanned)));if(!hit&&doc.page_count)meta.append(el('span',doc.page_count+' 页'));content.append(meta);
- const tail=el('div','','card-tail');tail.append(hit?el('span','第 '+doc.page+' 页','badge'):badge(doc.status),el('span','↗','card-arrow'));card.append(icon,content,tail);card.addEventListener('click',()=>openDoc(hit?doc.doc_id:doc.id,doc.page||1).catch(failed));return card;
+ const tail=el('div','','card-tail');tail.append(hit?el('span',doc.page>0?'第 '+doc.page+' 页':'文档信息匹配','badge'):badge(doc.status),el('span','↗','card-arrow'));card.append(icon,content,tail);card.addEventListener('click',()=>openDoc(hit?doc.doc_id:doc.id,doc.page||1).catch(failed));return card;
 }
 function filterState(){const from=$('date-from').value,to=$('date-to').value;if(from&&to&&from>to)throw Error('开始日期不能晚于结束日期。');show('reset-filters',!!($('category').value||$('status-filter').value||from||to));show('clear-search',!!$('query').value);$('date-filter-label').textContent=from||to?(from||'不限')+' — '+(to||'不限'):'扫描日期 ⌄';return {from,to};}
 function loadingCards(){$('documents').replaceChildren(...Array.from({length:4},()=>{const n=el('div','','skeleton-card');n.setAttribute('aria-hidden','true');return n;}));}
@@ -74,8 +74,8 @@ async function search(){
  const token=++state.listToken;$('search-note').textContent='正在结合原文、关键词与语义查找…';$('library-heading').textContent='搜索结果';$('search-button').disabled=true;show('load-more',false);$('documents').setAttribute('aria-busy','true');
  try{
   const data=await api('/search?'+new URLSearchParams({q,category:$('category').value,from,to}));if(token!==state.listToken)return;
-  $('documents').replaceChildren(...data.results.map(d=>documentCard(d,true)));if(!data.results.length)$('documents').append(emptyState('暂时没有找到相关页面','试试文件中的编号、姓名或近义词。尚未完成分析的文档不会出现在内容搜索里。',button('让秘书深入查找',askSearch)));
-  $('search-note').textContent=data.results.length+' 个相关页面 · '+(data.mode==='hybrid'?'全文与语义检索':'全文与关键词检索')+(data.warning?' · 语义检索暂不可用':'');$('library-foot').textContent='结果按相关程度排序，点击即可定位原文页码。';
+  $('documents').replaceChildren(...data.results.map(d=>documentCard(d,true)));if(!data.results.length)$('documents').append(emptyState('暂时没有找到相关文档','试试文件中的编号、姓名或近义词。尚未识别的页面可能仍包含你要找的内容。',button('让秘书深入查找',askSearch)));
+  $('search-note').textContent=data.results.length+' 份相关文档'+(data.has_more?' / 共 '+data.total+' 份':'')+' · '+(data.mode==='hybrid'?'全文与语义检索':'全文与关键词检索');$('search-note').title=data.warning||'';$('library-foot').textContent=(data.warning?data.warning+' ':'')+(data.has_more?'当前展示最相关的结果，可让秘书继续查找其余文档。':'点击结果核对原页；文档信息匹配需要进一步确认。');
  }catch(error){if(token===state.listToken){$('documents').replaceChildren(emptyState('搜索未完成',error.message,button('重试搜索',search)));$('search-note').textContent='';}throw error;}
  finally{if(token===state.listToken){$('search-button').disabled=false;$('documents').setAttribute('aria-busy','false');}}
 }
@@ -167,7 +167,9 @@ async function chatUpdate(){
  const id=state.conversation;if(!id)return;const version=state.chatVersion,request=++state.chatRequest,data=await api('/conversations/'+id);if(id!==state.conversation||version!==state.chatVersion||request!==state.chatRequest)return;
  const json=JSON.stringify(data.messages),container=$('messages');if(state.lastMessages!==json){const selection=window.getSelection(),readingSelection=selection&&!selection.isCollapsed&&container.contains(selection.anchorNode),nearBottom=!state.lastMessages||(!readingSelection&&container.scrollHeight-container.scrollTop-container.clientHeight<100),oldTop=container.scrollTop;container.replaceChildren(...data.messages.map(messageNode));state.lastMessages=json;if(nearBottom)container.scrollTop=container.scrollHeight;else container.scrollTop=oldTop;}
  const job=data.jobs[0],working=job&&['pending','running'].includes(job.status);show('agent-state',!!working||job?.status==='failed');$('agent-state').classList.toggle('error',job?.status==='failed');
- $('agent-state').textContent=working?(job.status==='pending'?'消息已送达，正在等待秘书处理。':'秘书正在查阅原文并整理答案…'):job?.status==='failed'?'本次回复未完成：'+(job.error||'请在处理记录中重试任务。'):'';state.chatWorking=!!working;updateChatSend();
+ const progress=data.progress,plan=progress?.plan;let progressText='秘书正在查阅原文并整理答案…';
+ if(progress?.status==='running'){progressText=(progress.phase||progressText)+' · 已核对 '+(progress.pages_read||0)+' 页';if(plan?.steps?.length)progressText+=' · 步骤 '+(plan.completed||0)+'/'+plan.steps.length;}
+ $('agent-state').textContent=working?(job.status==='pending'?'消息已送达，正在等待秘书处理。':progressText):job?.status==='failed'?'本次回复未完成：'+(job.error||'请在处理记录中重试任务。'):'';$('agent-state').title=working&&plan?.steps?.length?[plan.goal,...plan.steps.map((x,i)=>(i<plan.completed?'✓ ':'○ ')+x)].join('\n'):'';state.chatWorking=!!working;updateChatSend();
 }
 on('chat-form','submit',async e=>{
  e.preventDefault();const text=$('chat-input').value.trim();if(!text||state.sending||state.chatWorking)return;

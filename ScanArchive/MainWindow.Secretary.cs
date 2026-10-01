@@ -160,6 +160,10 @@ public sealed partial class MainWindow
             var job=data["jobs"]!.AsArray().FirstOrDefault();string state=S(job,"status");
             chatBusy=state is "pending" or "running";
             agentStatus.Text=state switch{"pending"=>"已收到 · 正在排队，可继续浏览文档","running"=>"正在检索、阅读和整理…","failed"=>"回复未完成 · 可到处理记录重试",_=>"回答已更新 · 点击引用核对原文"};
+            if(state=="running"&&data["progress"] is JsonObject progress&&S(progress,"status")=="running"){
+                agentStatus.Text=S(progress,"phase")+" · 已核对 "+S(progress,"pages_read")+" 页";
+                if(progress["plan"] is JsonObject plan)agentStatus.Text+=" · 步骤 "+S(plan,"completed")+"/"+(plan["steps"]?.AsArray().Count??0);
+            }
             agentStatus.ForeColor=state=="failed"?Color.FromArgb(165,83,47):Muted;
             UpdateSendState();
             var messages=data["messages"]!.AsArray();signature=messages.ToJsonString();

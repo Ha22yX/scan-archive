@@ -126,9 +126,17 @@ Web UI regression checks run against synthetic fixtures on an isolated local ser
 
 Automated tests use synthetic PDFs and a mocked OpenAI transport. Native IPC tests also cover shared conversations, settings validation, reversible management, and browsing while a search is in flight. Mixed-page retrieval tests prevent global document tags from being mistaken for evidence on every page; interrupted index rebuilds retain the previous index. They cover analysis-before-organization, metadata persistence, Chinese/identifier retrieval, embedding outages, scan provenance after splitting, moves/undo, path boundaries, verified citations and daily scheduling. These tests do **not** measure real-model OCR or retrieval quality. Real API behavior, cost and document accuracy must be evaluated with your own key and representative scans. Handwriting, clipping and tiny text can still be misread; review important results against the page preview.
 
-Page indexes use only that page’s content and analysis. Overall metadata is a low-weight discovery fallback, with an explicit instruction to verify the actual page. Existing indexes upgrade once without repeating page vision analysis.
+Page indexes use only that page’s content and analysis. Overall metadata is a separate discovery signal, with no page citation when it is stronger than the available page evidence. Existing indexes upgrade once without repeating page vision analysis.
 
 The semantic search implementation currently scores vectors in process; large libraries will eventually need a dedicated approximate-nearest-neighbor index. A request-count limit is not a dollar spending cap. The agent has a bounded number of tool steps per run, so very large reorganizations may need another wake-up.
+
+## A secretary that investigates before organizing
+
+The agent can run up to six complementary searches together, including exact identifiers and bilingual query variants. Retrieval searches document metadata, every stored page and current-model embeddings, groups hits by document, and exposes pagination and coverage gaps. Missing search chunks no longer make otherwise readable documents invisible. Scan-date and document-date filters are distinct.
+
+For difficult questions it locates pages within long PDFs, compares candidate documents, reads the source text, and can inspect the original page image for ambiguous handwriting, numbers or layout. Search snippets and comparison hints are not accepted as verified citations. Sources read in a tool batch must be returned to the model before it can use them to authorize a merge.
+
+Maintenance starts with a paginated audit of incomplete analysis, missing indexes, mixed scans, weak titles and redundant category spellings. The agent can track a short work plan, execute useful changes and recheck outcomes. Desktop and web show its current activity and page-check count. Independent read tools run in bounded parallel batches; file changes remain sequential, with receipts distinguishing completed operations from queued background work. Existing model settings and the daily request limit remain in effect.
 
 ## What comes next
 

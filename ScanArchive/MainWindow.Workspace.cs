@@ -174,9 +174,11 @@ public sealed partial class MainWindow
         try{result=await SecretaryIntegration.Command("search",new(){["q"]=query,["category"]=Category},lifetime.Token);}
         catch{if(version==listVersion){listTitle.Text="搜索未完成";listHint.Text="请重试，或点击重置返回文档库。";}throw;}
         if(IsDisposed||version!=listVersion)return;
-        var rows=result["results"]!.AsArray();PopulateFiles(rows,true);listTitle.Text=$"匹配页面 · {rows.Count}";
+        var rows=result["results"]!.AsArray();PopulateFiles(rows,true);listTitle.Text=$"匹配文档 · {rows.Count}"+(N(result,"total")>rows.Count?$" / {N(result,"total")}":"");
         listHint.Text=(S(result,"mode")=="hybrid"?"语义 + 关键词检索":"关键词检索")+" · 点击结果定位原文页";
-        if(rows.Count==0)listHint.Text="未找到匹配页面。可换个描述，或请秘书继续查找。";
+        if(N(result,"total")>rows.Count)listHint.Text="显示最相关文档 · 可让秘书继续检索其余结果";
+        if(S(result,"warning")!="")listHint.Text+=" · 部分内容或语义索引不完整";
+        if(rows.Count==0)listHint.Text="未找到匹配内容。尚未识别的页面仍可能有相关资料。";
         listPrevious.Enabled=listNext.Enabled=false;
         stateFilter.Enabled=false;
     }

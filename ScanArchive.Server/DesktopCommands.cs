@@ -54,6 +54,7 @@ public sealed class DesktopCommands(AppSettings settings, Database db, Documents
             case "conversations": return new(){["conversations"]=Rows(db.Rows("SELECT * FROM conversations ORDER BY created DESC"))};
             case "conversation": return new(){
                 ["messages"]=Rows(db.Rows("SELECT role,text,created FROM messages WHERE conversation=$i ORDER BY id",("$i",id))),
+                ["progress"]=SecretaryAgent.Progress(db,id),
                 ["jobs"]=Rows(db.Rows("SELECT id,status,error FROM jobs WHERE kind='chat' AND payload=$i ORDER BY created DESC LIMIT 1",("$i",id)))};
             case "chat":
                 await chatGate.WaitAsync(ct);

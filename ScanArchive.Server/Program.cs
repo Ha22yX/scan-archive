@@ -150,7 +150,7 @@ api.MapPost("/jobs/{id}/retry",(string id,Database db)=>{db.Exec("UPDATE jobs SE
 api.MapPost("/maintenance",(Documents docs)=>new{job=docs.Enqueue("review","manual:"+Guid.NewGuid().ToString("N"))});
 api.MapPost("/discover",async(Worker worker,CancellationToken ct)=>new{found=await worker.Discover(ct)});
 api.MapGet("/conversations",(Database db)=>db.Rows("SELECT * FROM conversations ORDER BY created DESC"));
-api.MapGet("/conversations/{id}",(string id,Database db)=>new{messages=db.Rows("SELECT role,text,created FROM messages WHERE conversation=$i ORDER BY id",("$i",id)),jobs=db.Rows("SELECT status,error FROM jobs WHERE kind='chat' AND payload=$i ORDER BY created DESC LIMIT 1",("$i",id))});
+api.MapGet("/conversations/{id}",(string id,Database db)=>new{messages=db.Rows("SELECT role,text,created FROM messages WHERE conversation=$i ORDER BY id",("$i",id)),progress=SecretaryAgent.Progress(db,id),jobs=db.Rows("SELECT status,error FROM jobs WHERE kind='chat' AND payload=$i ORDER BY created DESC LIMIT 1",("$i",id))});
 api.MapPost("/chat",async(JsonObject body,DesktopCommands desktop,CancellationToken ct)=>{
     body["command"]="chat";body["id"]=body.S("conversation");return await desktop.Handle(body,ct);
 });
