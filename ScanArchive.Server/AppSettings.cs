@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using ScanArchive.Integration;
 
 namespace ScanArchive.Server;
 
@@ -29,8 +30,13 @@ public sealed class AppSettings
     public string Outbox => Path.Combine(DataRoot, "outbox");
     public AppSettings(string? dataRoot = null)
     {
-        DataRoot = dataRoot ?? Environment.GetEnvironmentVariable("SCANARCHIVE_DATA_DIR") ??
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ScanArchive", "Secretary");
+        string? configuredRoot = dataRoot ?? Environment.GetEnvironmentVariable("SCANARCHIVE_DATA_DIR");
+        if (configuredRoot is null)
+        {
+            LegacyDataMigration.EnsureMigrated(UserDataPaths.Root);
+            DataRoot = UserDataPaths.Secretary;
+        }
+        else DataRoot = configuredRoot;
         Directory.CreateDirectory(DataRoot);
         Directory.CreateDirectory(Outbox);
         string path = Path.Combine(DataRoot, "settings.json");
@@ -38,8 +44,14 @@ public sealed class AppSettings
         if (string.IsNullOrEmpty(Current.LibraryRoot))
         {
             string root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "扫描归档");
-            string scannerSettings = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ScanArchive", "settings.json");
-            if (File.Exists(scannerSettings)) root = JsonDocument.Parse(File.ReadAllText(scannerSettings)).RootElement.GetProperty("Root").GetString()!;
+            string scannerSettings = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(DataRoot))!, "settings.json");
+            if (File.Exists(scannerSettings))
+            {
+                using var scanner = JsonDocument.Parse(File.ReadAllText(scannerSettings));
+                if (scanner.RootElement.TryGetProperty("Root", out var libraryRoot) &&
+                    libraryRoot.ValueKind == JsonValueKind.String && !string.IsNullOrEmpty(libraryRoot.GetString()))
+                    root = libraryRoot.GetString()!;
+            }
             Save(Current with { LibraryRoot = root });
         }
     }

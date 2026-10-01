@@ -30,7 +30,25 @@ public sealed partial class MainWindow
         format.Items.AddRange(["PDF","PNG","JPEG"]);format.SelectedItem=settings.Format;if(format.SelectedIndex<0)format.SelectedItem="PDF";
         feeder.Checked=settings.Feeder;color.Checked=settings.Color;
         feeder.CheckedChanged+=(_,_)=>{if(feeder.Checked)format.SelectedItem="PDF";format.Enabled=!feeder.Checked;};format.Enabled=!feeder.Checked;
-        var prefs=demo?new JsonObject():SecretaryIntegration.Preferences();LoadPreferences(prefs);
+        LoadPreferences(new JsonObject());
+    }
+    void ReloadStartupSettings()
+    {
+        var restored=Settings.Load();
+        var preferences=SecretaryIntegration.Preferences();
+        settings=restored;
+        // A delayed connection must never replace edits already made in this window.
+        if(settingsDirty)return;
+        settingsLoading=true;
+        try{
+            root.Text=settings.Root;
+            dpi.SelectedItem=settings.Dpi;if(dpi.SelectedIndex<0)dpi.SelectedItem=300;
+            format.SelectedItem=settings.Format;if(format.SelectedIndex<0)format.SelectedItem="PDF";
+            feeder.Checked=settings.Feeder;color.Checked=settings.Color;
+            if(feeder.Checked)format.SelectedItem="PDF";format.Enabled=!feeder.Checked;
+        }finally{settingsLoading=false;}
+        LoadPreferences(preferences);
+        SetSettingsSaved();
     }
     void LoadPreferences(JsonObject prefs)
     {
@@ -48,6 +66,7 @@ public sealed partial class MainWindow
     async Task ShowSettings()
     {
         if(busy){status.Text="扫描完成后可修改设置。";return;}
+        if(!demo&&!scannerSettingsLoaded){status.Text="正在连接文档核心并读取设置，请稍候。";return;}
         if(settingsPage==null)BuildSettings();
         SwitchView(settingsPage!,"settings");
         if(demo){keyState.Text="演示模式 · 不保存设置";return;}
@@ -163,6 +182,7 @@ public sealed partial class MainWindow
     async Task SaveAllSettings()
     {
         if(demo){settingsFeedback.Text="演示模式不会修改真实设置。";return;}
+        if(!scannerSettingsLoaded)throw new InvalidOperationException("文档核心尚未连接，设置仍未加载，请连接成功后再保存。");
         if(!settingsDirty)return;
         if(busy)throw new InvalidOperationException("请等待扫描结束。");
         if(!Path.IsPathFullyQualified(root.Text))throw new ArgumentException("请选择完整的归档目录。");

@@ -65,7 +65,7 @@ public sealed class DesktopCommands(AppSettings settings, Database db, Documents
                     db.Exec("INSERT INTO messages(conversation,role,text,created) VALUES($c,'user',$t,$d)",("$c",id),("$t",message),("$d",Database.Now));
                     return new(){["conversation"]=id,["job"]=docs.Enqueue("chat",id)};
                 } finally {chatGate.Release();}
-            case "settings": return new(){["options"]=JsonSerializer.SerializeToNode(settings.Current,AppSettings.Json),["hasApiKey"]=!string.IsNullOrWhiteSpace(settings.ApiKey)};
+            case "settings": return new(){["options"]=JsonSerializer.SerializeToNode(settings.Current,AppSettings.Json),["hasApiKey"]=!string.IsNullOrWhiteSpace(settings.ApiKey),["dataRoot"]=settings.DataRoot};
             case "save_settings":
                 var options=r["options"]!.Deserialize<ServerOptions>(AppSettings.Json)??throw new ArgumentException("设置无效。");
                 if(!string.Equals(Path.GetFullPath(options.LibraryRoot),Path.GetFullPath(settings.Current.LibraryRoot),StringComparison.OrdinalIgnoreCase)&&db.Rows("SELECT id FROM documents LIMIT 1").Count>0)

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using ScanArchive.Integration;
 using PdfSharp.Pdf;
 using PdfSharp.Drawing;
 
@@ -12,7 +13,7 @@ public sealed class Settings
     public string Format { get; set; } = "PDF";
     public bool Feeder { get; set; }
     public bool Color { get; set; } = true;
-    public static string FilePath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ScanArchive", "settings.json");
+    public static string FilePath => Path.Combine(UserDataPaths.Root, "settings.json");
     public static Settings Load() => File.Exists(FilePath) ? JsonSerializer.Deserialize<Settings>(File.ReadAllText(FilePath)) ?? new() : new();
     public void Save()
     {

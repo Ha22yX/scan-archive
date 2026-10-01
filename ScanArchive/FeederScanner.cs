@@ -1,4 +1,5 @@
 using NAPS2.Wia;
+using ScanArchive.Integration;
 
 namespace ScanArchive;
 
@@ -12,7 +13,7 @@ public static class FeederScanner
         var pages = new List<string>();
         int actualDpi = dpi;
         string phase = "连接 WIA 2.0 进纸器";
-        string logFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ScanArchive", "Logs");
+        string logFolder = Path.Combine(UserDataPaths.Root, "Logs");
         Directory.CreateDirectory(logFolder);
         using var log = new StreamWriter(Path.Combine(logFolder, Path.GetFileName(folder) + ".log")) { AutoFlush = true };
         log.WriteLine($"{DateTime.Now:O} WIA 2.0 feeder, requested DPI={dpi}");

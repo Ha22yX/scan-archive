@@ -11,6 +11,7 @@
 
   <ItemGroup>
     <Compile Include="..\Shared\DesktopProtocol.cs" Link="Integration\DesktopProtocol.cs" />
+    <Compile Include="..\Shared\UserDataPaths.cs" Link="Integration\UserDataPaths.cs" />
     <Content Include="..\docs\licenses\NAPS2.Wia.txt" Link="NAPS2.Wia.LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\docs\licenses\Markdig.txt" Link="Markdig.LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <PackageReference Include="Markdig" Version="1.4.0" />

@@ -9,6 +9,17 @@ using System.Text.Json.Nodes;
 using System.Collections.Concurrent;
 using System.Net;
 
+if (args.Contains("--migrate-data", StringComparer.OrdinalIgnoreCase))
+{
+    var migratedSettings = new AppSettings();
+    Console.WriteLine(JsonSerializer.Serialize(new
+    {
+        dataRoot = migratedSettings.DataRoot,
+        hasApiKey = !string.IsNullOrWhiteSpace(migratedSettings.ApiKey)
+    }));
+    return;
+}
+
 var builder=WebApplication.CreateBuilder(args);
 var settings=new AppSettings();
 // A file lock follows the process lifetime and prevents concurrent queue recovery.
@@ -66,7 +77,7 @@ bool Verify(string password)
     var candidate=Rfc2898DeriveBytes.Pbkdf2(password,salt,210000,HashAlgorithmName.SHA256,32);
     return CryptographicOperations.FixedTimeEquals(candidate,Convert.FromBase64String(stored.S("hash")));
 }
-app.MapGet("/health",()=>Results.Ok(new{service="ScanArchive.Secretary",version="1.0"}));
+app.MapGet("/health",()=>Results.Ok(new{service="ScanArchive.Secretary",version="1.0",dataLayout="user-profile-v1"}));
 app.MapGet("/api/session",(HttpContext ctx)=>new{authenticated=ctx.User.Identity?.IsAuthenticated==true,setupRequired=!File.Exists(passwordFile),local=IPAddress.IsLoopback(ctx.Connection.RemoteIpAddress??IPAddress.None)});
 app.MapPost("/api/login",async(HttpContext ctx,JsonObject body)=>{
     string ip=ctx.Connection.RemoteIpAddress?.ToString()??"unknown";

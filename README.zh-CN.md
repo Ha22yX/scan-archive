@@ -79,7 +79,9 @@ cd scan-archive
 
 ## 数据存在哪里
 
-归档根目录下，`Inbox` 接收扫描，`Library/<分类>` 存放整理后的文件，`.scanarchive-originals` 保留原始字节，`.scanarchive-metadata` 保存逐份 JSON。数据库、任务、聊天记录和设置位于 `%LOCALAPPDATA%\ScanArchive\Secretary`。
+归档根目录下，`Inbox` 接收扫描，`Library/<分类>` 存放整理后的文件，`.scanarchive-originals` 保留原始字节，`.scanarchive-metadata` 保存逐份 JSON。数据库、任务、聊天记录和设置位于 `%USERPROFILE%\.scan-archive\Secretary`，扫描偏好位于 `%USERPROFILE%\.scan-archive\settings.json`。
+
+这个位置避免 AppData 重定向，使你双击启动和从开发工具启动时读取同一文档库。首次升级请从 Windows 文件资源管理器双击启动，以便同时检查两处旧数据。服务会检查旧 AppData 目录和 Codex 的重定向缓存，用 SQLite 一致性备份迁移已有文档库，并保留旧数据。如果发现两个不同的旧库都包含文档，会明确报告冲突，避免误选。界面演示模式会标注“示例数据”，不代表真实文档库。
 
 备份时应关闭服务，并同时备份归档根目录和上述本地数据目录。原件保留在同一硬盘不等于异地备份。更换 Windows 账户后需重新配置 Key。目前尚未实现仅用 JSON 自动完整恢复数据库的迁移工具。
 

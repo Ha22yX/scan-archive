@@ -14,7 +14,7 @@ public sealed partial class MainWindow : Form
     readonly Label heading=new(){Text="文档工作台",Dock=DockStyle.Top,Height=40,Font=new Font("Microsoft YaHei UI",19,FontStyle.Bold),ForeColor=Ink};
     readonly System.Windows.Forms.Timer libraryTimer=new(){Interval=3000};
     readonly bool demo;
-    bool synchronizing,busy,refreshingFiles;
+    bool synchronizing,busy,refreshingFiles,scannerSettingsLoaded;
     string activeView="home";
     Settings settings=new();
     CancellationTokenSource? cancellation;
@@ -24,13 +24,13 @@ public sealed partial class MainWindow : Form
     public MainWindow(bool demo=false)
     {
         this.demo=demo;
-        Text="Scan Archive · 文档工作台";
+        Text=demo?"Scan Archive · 界面演示（示例数据）":"Scan Archive · 文档工作台";
         Font=new Font("Microsoft YaHei UI",10);
         AutoScaleMode=AutoScaleMode.Dpi; BackColor=Surface; ForeColor=Ink;
         Size=new Size(1500,920);MinimumSize=new Size(1100,700);StartPosition=FormStartPosition.CenterScreen;
         KeyPreview=true;
-        if(!demo)try{settings=Settings.Load();}catch(Exception ex){status.Text="设置读取失败："+ex.Message;}
         InitializeSettings();
+        scan.Enabled=demo;settingsNav.Enabled=demo;
         var side=new Panel{Dock=DockStyle.Left,Width=176,BackColor=Ink,Padding=new Padding(14,20,14,12)};
         var brand=new Label{Text="S.  Scan Archive",ForeColor=Color.White,Font=new Font(Font.FontFamily,14,FontStyle.Bold),Dock=DockStyle.Top,Height=72,Padding=new Padding(0,8,0,0)};
         var navigation=new FlowLayoutPanel{Dock=DockStyle.Top,Height=174,FlowDirection=FlowDirection.TopDown,WrapContents=false};
@@ -50,9 +50,9 @@ public sealed partial class MainWindow : Form
         homeNav.Click+=(_,_)=>ShowHome();
         activityNav.Click+=async(_,_)=>await RunUi(ShowActivity);
         settingsNav.Click+=async(_,_)=>await RunUi(ShowSettings);
-        scan.Click+=async(_,_)=>{if(busy){cancellation?.Cancel();scan.Enabled=false;scan.Text="正在保存当前页…";}else if(!demo){ShowHome();await Scan();scan.Enabled=true;}};
+        scan.Click+=async(_,_)=>{if(busy){cancellation?.Cancel();scan.Enabled=false;scan.Text="正在保存当前页…";}else if(!demo){ShowHome();await Scan();scan.Enabled=scannerSettingsLoaded;}};
         libraryTimer.Tick+=async(_,_)=>await Synchronize();
-        Shown+=async(_,_)=>{if(demo){LoadDemo();return;}await Synchronize();await LoadDevices();libraryTimer.Start();};
+        Shown+=async(_,_)=>{if(demo){LoadDemo();return;}await Synchronize();if(!IsDisposed)libraryTimer.Start();};
         FormClosing+=(_,e)=>{if(busy){e.Cancel=true;status.Text="请先停止扫描，等待当前页保存完成后再关闭。";}};
         FormClosed+=(_,_)=>{lifetime.Cancel();libraryTimer.Dispose();preview.Image?.Dispose();tips.Dispose();};
         KeyDown+=async(_,e)=>{
@@ -75,7 +75,18 @@ public sealed partial class MainWindow : Form
     {
         if(demo||synchronizing||IsDisposed)return;synchronizing=true;
         try {
-            await SecretaryIntegration.EnsureStarted();await SecretaryIntegration.FlushScans();
+            await SecretaryIntegration.EnsureStarted();
+            if(IsDisposed)return;
+            if(!scannerSettingsLoaded){
+                // The core migrates settings before advertising readiness. Reading earlier
+                // can load defaults from an empty profile and overwrite the migrated values.
+                ReloadStartupSettings();
+                scannerSettingsLoaded=true;
+                await LoadDevices();
+                if(IsDisposed)return;
+                settingsNav.Enabled=true;
+            }
+            await SecretaryIntegration.FlushScans();
             connection.Text="● 已连接\n本机文档库";
             if(activeView=="home"){await RefreshFiles();await RefreshConversation();}
             else if(activeView=="activity")await RefreshActivity();

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using ScanArchive.Integration;
 
@@ -9,7 +10,11 @@ namespace ScanArchive;
 static class SecretaryIntegration
 {
     static readonly SemaphoreSlim submissions=new(1,1);
-    public static string DataRoot => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"ScanArchive","Secretary");
+    static readonly SemaphoreSlim startup=new(1,1);
+    static Process? startedCore;
+    static Task startedCoreErrors=Task.CompletedTask;
+    static CoreErrorTail? startedCoreErrorTail;
+    public static string DataRoot => UserDataPaths.Secretary;
     public static JsonObject Preferences()
     {
         string path=Path.Combine(DataRoot,"settings.json");
@@ -70,17 +75,83 @@ static class SecretaryIntegration
     public static Task<JsonObject> Trash(string id)=>DesktopProtocol.Request(DataRoot,new JsonObject{["command"]="trash",["id"]=id});
     public static async Task EnsureStarted()
     {
-        using var client=new HttpClient(new HttpClientHandler{UseProxy=false}){Timeout=TimeSpan.FromSeconds(2)};
-        const string healthUrl="http://127.0.0.1:5278/health";
-        try{var r=await client.GetAsync(healthUrl);if(r.IsSuccessStatusCode)return;}catch(HttpRequestException){}catch(TaskCanceledException){}
-        string exe=Path.Combine(AppContext.BaseDirectory,"server","ScanArchive.Server.exe");
-        if(File.Exists(exe))Process.Start(new ProcessStartInfo(exe){WorkingDirectory=Path.GetDirectoryName(exe),UseShellExecute=false,CreateNoWindow=true,WindowStyle=ProcessWindowStyle.Hidden});
-        for(int i=0;i<20;i++)
+        await startup.WaitAsync();
+        try
         {
-            await Task.Delay(300);
-            try{var r=await client.GetAsync(healthUrl);if(r.IsSuccessStatusCode)return;}catch(HttpRequestException){}catch(TaskCanceledException){}
+            using var client=new HttpClient(new HttpClientHandler{UseProxy=false}){Timeout=TimeSpan.FromSeconds(2)};
+            if(await CoreReady(client))return;
+            string exe=Path.Combine(AppContext.BaseDirectory,"server","ScanArchive.Server.exe");
+            if(!File.Exists(exe))throw new IOException("未找到文档核心程序，请从完整安装目录启动 Scan Archive。");
+            // A slow first migration must not spawn another core on every UI retry.
+            if(startedCore==null||startedCore.HasExited)
+            {
+                startedCore?.Dispose();
+                startedCore=Process.Start(new ProcessStartInfo(exe){WorkingDirectory=Path.GetDirectoryName(exe),UseShellExecute=false,CreateNoWindow=true,WindowStyle=ProcessWindowStyle.Hidden,RedirectStandardError=true})
+                    ??throw new IOException("无法启动文档核心程序。");
+                var errorTail=new CoreErrorTail();startedCoreErrorTail=errorTail;
+                var errorStream=startedCore.StandardError;
+                startedCoreErrors=Task.Run(()=>ReadCoreErrors(errorStream,errorTail));
+            }
+            for(int i=0;i<60;i++)
+            {
+                await Task.Delay(500);
+                await ThrowIfCoreExited();
+                if(await CoreReady(client))return;
+            }
+            await ThrowIfCoreExited();
+            throw new IOException("文档库核心仍未就绪。首次迁移可能需要更长时间，请稍后重试或检查服务日志。");
         }
-        throw new IOException("文档库核心未能启动，请检查服务日志。");
+        finally{startup.Release();}
+    }
+    static async Task ThrowIfCoreExited()
+    {
+        if(startedCore==null||!startedCore.HasExited)return;
+        // Drain the final error text only after exit, with a bound in case another
+        // inherited process keeps the pipe open. A healthy core is never awaited.
+        await Task.WhenAny(startedCoreErrors,Task.Delay(300));
+        string details=startedCoreErrorTail?.Text.Trim()??"";
+        throw new IOException($"文档核心启动失败（退出代码 {startedCore.ExitCode}）。"+
+            (details.Length>0?"\n\n"+details:"请检查文档核心日志后重试。"));
+    }
+    static async Task ReadCoreErrors(StreamReader reader,CoreErrorTail output)
+    {
+        var buffer=new char[1024];
+        try
+        {
+            int count;
+            while((count=await reader.ReadAsync(buffer.AsMemory()).ConfigureAwait(false))>0)
+                output.Append(buffer,count);
+        }
+        catch(IOException){}
+        catch(ObjectDisposedException){}
+    }
+    sealed class CoreErrorTail
+    {
+        const int Limit=4000;
+        readonly object gate=new();
+        readonly StringBuilder text=new();
+        public void Append(char[] buffer,int count)
+        {
+            lock(gate){text.Append(buffer,0,count);if(text.Length>Limit)text.Remove(0,text.Length-Limit);}
+        }
+        public string Text { get { lock(gate)return text.ToString(); } }
+    }
+    static async Task<bool> CoreReady(HttpClient client)
+    {
+        try
+        {
+            using var response=await client.GetAsync("http://127.0.0.1:5278/health");
+            if(!response.IsSuccessStatusCode)
+                throw new IOException("本机 5278 端口上的服务尚未就绪。请检查或重启文档核心后重试。");
+            JsonNode? health;
+            try{health=JsonNode.Parse(await response.Content.ReadAsStringAsync());}
+            catch(JsonException){throw new IOException("本机 5278 端口未提供兼容的文档核心，请关闭旧核心或其他占用程序后重新启动 Scan Archive。");}
+            if(health is not JsonObject details || details["dataLayout"]?.ToString()!="user-profile-v1")
+                throw new IOException("旧版文档核心仍在运行，尚未使用统一数据目录。请先关闭旧核心，再重新启动 Scan Archive；原有文档不会被删除。");
+            return true;
+        }
+        catch(HttpRequestException){return false;}
+        catch(TaskCanceledException){return false;}
     }
     public static Task<JsonObject> Command(string command, JsonObject? values=null, CancellationToken ct=default)
     {

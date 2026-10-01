@@ -8,6 +8,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="..\Shared\DesktopProtocol.cs" Link="Integration\DesktopProtocol.cs" />
+    <Compile Include="..\Shared\UserDataPaths.cs" Link="Integration\UserDataPaths.cs" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.12" />
     <PackageReference Include="Docnet.Core" Version="2.6.0" />
     <PackageReference Include="PDFsharp" Version="6.2.2" />

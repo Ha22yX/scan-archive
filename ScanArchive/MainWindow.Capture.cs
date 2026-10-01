@@ -1,9 +1,12 @@
+using ScanArchive.Integration;
+
 namespace ScanArchive;
 
 public sealed partial class MainWindow
 {
     void SaveSettings()
     {
+        if (!scannerSettingsLoaded) throw new InvalidOperationException("扫描设置尚未加载，请等待文档核心连接成功。");
         if (!Path.IsPathFullyQualified(root.Text)) throw new Exception("请选择完整的归档目录路径。");
         settings.Root = Path.GetFullPath(root.Text);
         settings.DeviceId = (devices.SelectedItem as ScannerDevice)?.Id ?? "";
@@ -20,20 +23,29 @@ public sealed partial class MainWindow
         try
         {
             var found = await Scanner.OnSta(Scanner.Devices);
-            devices.Items.Clear();
-            devices.Items.AddRange(found.Cast<object>().ToArray());
-            devices.SelectedItem = found.FirstOrDefault(x => x.Id == settings.DeviceId) ?? found.FirstOrDefault();
+            if (IsDisposed) return;
+            string selectedId = (devices.SelectedItem as ScannerDevice)?.Id ?? settings.DeviceId;
+            bool wasLoading = settingsLoading;
+            settingsLoading = true;
+            try
+            {
+                devices.Items.Clear();
+                devices.Items.AddRange(found.Cast<object>().ToArray());
+                devices.SelectedItem = found.FirstOrDefault(x => x.Id == selectedId) ?? found.FirstOrDefault();
+            }
+            finally { settingsLoading = wasLoading; }
             status.Text = found.Count == 0 ? "未发现扫描仪，请检查设备电源和驱动" : $"已连接 · {devices.SelectedItem}";
         }
         catch (Exception ex) { status.Text = "设备读取失败"; status.Text += "：" + ex.Message; }
-        finally { scan.Enabled = true; }
+        finally { if (!IsDisposed) scan.Enabled = scannerSettingsLoaded && !busy; }
     }
 
     async Task Scan()
     {
-        string temp = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ScanArchive", "Pending", Guid.NewGuid().ToString("N"));
+        string temp = Path.Combine(UserDataPaths.Root, "Pending", Guid.NewGuid().ToString("N"));
         try
         {
+            if (!scannerSettingsLoaded) throw new InvalidOperationException("扫描设置尚未加载，请等待文档核心连接成功。");
             if (devices.SelectedItem is not ScannerDevice device) throw new Exception("请先在设置中选择扫描设备。");
             var prefs=SecretaryIntegration.Preferences();
             if(prefs["libraryRoot"]!=null)root.Text=prefs["libraryRoot"]!.ToString();

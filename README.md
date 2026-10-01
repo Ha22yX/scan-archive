@@ -86,7 +86,7 @@ Archive root/
   Library/<AI categories>/     # Organized files; stable ID suffix avoids collisions
   .scanarchive-originals/      # Original bytes identified by SHA-256
   .scanarchive-metadata/       # One comprehensive JSON file per document ID
-%LOCALAPPDATA%/ScanArchive/Secretary/
+%USERPROFILE%/.scan-archive/Secretary/
   library.db                   # Search index, metadata, jobs, conversations and audit trail
   settings.json                # Non-secret configuration
   openai.secret                # API key encrypted for the current Windows account
@@ -95,7 +95,9 @@ Archive root/
 
 The scan timestamp is separate from any date found in the document. Split children inherit that timestamp and retain the parent ID and original page range. There is no automatic archive-directory crawling. Existing files enter through the native file picker, explicit web upload or the one-time manual legacy import command; when no capture event exists, their filesystem creation time is used as a fallback, which may be inaccurate after copying. Exact byte duplicates share one document record; individual capture events retain their own scan time, device and source. Events are idempotent even after an agent renames the file. Metadata is available in the document details and as JSON beside the library; page checkpoints survive API failures.
 
-**Back up both the archive root and the local Secretary data directory**, with the service stopped for a consistent database copy. Keeping originals on the same drive is recovery protection, not an independent backup. DPAPI secrets are bound to the Windows account: configure the API key again after migration. JSON exports preserve content and provenance, but a complete automated database restore from sidecars is not yet implemented.
+The application uses this user-profile directory so launching it from Explorer or a development tool reads the same library, even when Windows redirects the tool's AppData files. Launch the upgraded application from Windows Explorer the first time, so both old data locations are visible. The service checks the previous AppData location and Codex's redirected cache, copies the existing library with a consistent SQLite backup, and preserves the source. If multiple distinct libraries contain documents, startup stops with an explicit conflict instead of choosing one. Scanner preferences live in `%USERPROFILE%/.scan-archive/settings.json`. UI demonstration mode uses clearly labeled synthetic documents and never represents the live library.
+
+**Back up both the archive root and the local Secretary data directory**, with the service stopped for a consistent database copy. Keeping originals on the same drive is recovery protection, not an independent backup. DPAPI secrets are bound to the Windows account: configure the API key again when moving to another Windows account. JSON exports preserve content and provenance, but a complete automated database restore from sidecars is not yet implemented.
 
 ## Implementation and verification
 
