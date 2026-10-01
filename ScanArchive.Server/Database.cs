@@ -21,6 +21,9 @@ public sealed class Database
             CREATE TABLE IF NOT EXISTS pages(doc_id TEXT NOT NULL, number INTEGER NOT NULL, text TEXT NOT NULL, summary TEXT NOT NULL DEFAULT '', PRIMARY KEY(doc_id,number));
             CREATE TABLE IF NOT EXISTS summary_revisions(id TEXT PRIMARY KEY,doc_id TEXT NOT NULL,before_summary TEXT NOT NULL,after_summary TEXT NOT NULL,model TEXT NOT NULL,created TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS analyses(doc_id TEXT NOT NULL,page INTEGER NOT NULL,model TEXT NOT NULL,analyzed_at TEXT NOT NULL,PRIMARY KEY(doc_id,page));
+            CREATE TABLE IF NOT EXISTS document_sources(merged_doc_id TEXT NOT NULL,merged_page INTEGER NOT NULL,source_doc_id TEXT NOT NULL,source_page INTEGER NOT NULL,scanned TEXT NOT NULL,PRIMARY KEY(merged_doc_id,merged_page));
+            CREATE INDEX IF NOT EXISTS document_sources_source ON document_sources(source_doc_id);
+            CREATE TABLE IF NOT EXISTS document_merges(doc_id TEXT PRIMARY KEY,plan_hash TEXT NOT NULL UNIQUE,page_plan TEXT NOT NULL,operation_id TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS scan_submissions(scan_id TEXT PRIMARY KEY,doc_id TEXT NOT NULL DEFAULT '',path TEXT NOT NULL,scanned TEXT NOT NULL,hash TEXT NOT NULL,device TEXT NOT NULL DEFAULT '',source TEXT NOT NULL DEFAULT '');
             CREATE TABLE IF NOT EXISTS trash(doc_id TEXT PRIMARY KEY,previous_status TEXT NOT NULL,deleted_at TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS chunks(id INTEGER PRIMARY KEY AUTOINCREMENT,doc_id TEXT NOT NULL,page INTEGER NOT NULL,text TEXT NOT NULL,embedding TEXT,model TEXT NOT NULL DEFAULT '');

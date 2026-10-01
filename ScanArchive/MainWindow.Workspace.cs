@@ -31,7 +31,7 @@ public sealed partial class MainWindow
     int libraryOffset,libraryTotal,listVersion,selectionVersion,renderVersion,previewPage,previewPages=1;
     bool filterLoading,jumping,pageRendering;
     JsonObject? selectedDocument;
-    JsonArray selectedPages=new();
+    JsonArray selectedPages=new(),selectedSources=new();
     readonly SemaphoreSlim renderGate=new(1,1);
 
     void ShowHome()
@@ -224,7 +224,7 @@ public sealed partial class MainWindow
     }
     void ApplyDetails(JsonObject result)
     {
-        selectedDocument=result["document"]!.AsObject();selectedPages=result["pages"]!.AsArray();var d=selectedDocument;
+        selectedDocument=result["document"]!.AsObject();selectedPages=result["pages"]!.AsArray();selectedSources=result["sources"] as JsonArray??new();var d=selectedDocument;
         previewTitle.Text=S(d,"title");previewTitle.AutoEllipsis=true;
         documentFacts.Text=$"{PipelineStatus(S(d,"status"))} · {N(d,"page_count")} 页{(N(d,"locked")==1?" · 分类已锁定":"")}\n扫描：{LocalTime(S(d,"scanned"))}\n分类：{(S(d,"category")==""?"等待秘书归档":S(d,"category"))}";
         tips.SetToolTip(previewTitle,S(d,"title"));tips.SetToolTip(documentFacts,documentFacts.Text);UpdatePageSummary();UpdateChatContext();UpdateDocumentActions();
@@ -236,7 +236,13 @@ public sealed partial class MainWindow
         string text=body;
         if(detailMode.SelectedIndex==1){var page=selectedPages.FirstOrDefault(p=>N(p,"number")==previewPage+1);text=$"## 第 {previewPage+1} 页 · 识别原文\n\n"+(page==null?"本页尚未完成识别。你可以先查看左侧原件。":S(page,"text"));}
         if(detailMode.SelectedIndex==2){text="## 检索关键词\n\n"+S(selectedDocument,"tags")+"\n\n## 扫描记录\n\n- 扫描时间："+LocalTime(S(selectedDocument,"scanned"));
-            if(S(selectedDocument,"parent_id")!="")text+="\n- 原始页码："+S(selectedDocument,"source_pages")+"\n\n可从更多菜单中查看原始扫描。";}
+            if(S(selectedDocument,"parent_id")!="")text+="\n- 原始页码："+S(selectedDocument,"source_pages");
+            var origins=selectedSources.Where(s=>S(s,"source_doc_id")!=selectedId).ToArray();
+            if(origins.Length>0){
+                text+="\n\n## 每页扫描来源\n\n";
+                foreach(var origin in origins)text+=$"- **本文件第 {N(origin,"merged_page")} 页** ← {S(origin,"title")} · 原第 {N(origin,"source_page")} 页\n  扫描于 {LocalTime(S(origin,"scanned"))}\n";
+                text+="\n更多菜单 → 查看当前页的原始扫描，可打开对应原件。";
+            }else if(S(selectedDocument,"parent_id")!="")text+="\n\n可从更多菜单中查看原始扫描。";}
         if(S(selectedDocument,"error")!="")text+="\n\n## 处理提示\n\n"+S(selectedDocument,"error");
         summary.SetMarkdown(text);
 
@@ -289,7 +295,13 @@ public sealed partial class MainWindow
         if(includeJobs){Add("重新整理",()=>DocumentAction("organize"));Add("整理概括排版",()=>DocumentAction("format_summary"));Add("重试内容分析",()=>DocumentAction("retry_analysis"));menu.Items.Add(new ToolStripSeparator());}
         Add("打开原件",()=>{OpenSelected();return Task.CompletedTask;});
         Add("在文件夹中显示",()=>{if(selectedDocument!=null)Open(Path.GetDirectoryName(S(selectedDocument,"path"))!);return Task.CompletedTask;});
-        Add("查看原始扫描",async()=>{string parent=S(selectedDocument,"parent_id");if(parent==""){status.Text="当前文档就是原始扫描。";return;}await SelectDocument(new JsonObject{["id"]=parent});if(selectedId==parent&&SelectedDocumentReady)status.Text="正在查看后台保留的原始扫描";});
+        Add("查看当前页的原始扫描",async()=>{
+            var origin=selectedSources.FirstOrDefault(s=>N(s,"merged_page")==previewPage+1&&S(s,"source_doc_id")!=selectedId);
+            string parent=origin==null?S(selectedDocument,"parent_id"):S(origin,"source_doc_id");
+            if(parent==""){status.Text="当前文档就是原始扫描。";return;}
+            await SelectDocument(new JsonObject{["id"]=parent,["page"]=origin==null?1:N(origin,"source_page")});
+            if(selectedId==parent&&SelectedDocumentReady)status.Text="正在查看后台保留的原始扫描";
+        });
         Add("修改标题和分类…",EditSelected);Add("询问秘书",()=>{AskAboutSelected();return Task.CompletedTask;});Add("允许秘书重新调整分类",()=>DocumentAction("unlock"));
         menu.Items.Add(new ToolStripSeparator());Add("移入回收站",DeleteSelected);return menu;
     }

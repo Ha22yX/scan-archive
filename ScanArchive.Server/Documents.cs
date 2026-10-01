@@ -10,7 +10,7 @@ using PdfSharp.Pdf.IO;
 
 namespace ScanArchive.Server;
 
-public sealed class Documents(AppSettings settings, Database db)
+public sealed partial class Documents(AppSettings settings, Database db)
 {
     readonly System.Collections.Concurrent.ConcurrentDictionary<string,object> metadataLocks=new();
     static readonly object PdfGate=new();
@@ -77,6 +77,7 @@ public sealed class Documents(AppSettings settings, Database db)
     public string Enqueue(string kind,string payload)
     {
         if(kind is "index" or "organize" or "embeddings" or "reindex" or "format_summary" or "reanalyze" && db.Doc(payload)?.S("status") is "deleted" or "superseded")throw new InvalidOperationException("此文档已删除或已由拆分文件替代。");
+        if(kind is "index" or "reindex" or "reanalyze" or "format_summary" && ActiveMergeForSource(payload) is { } merged)throw new InvalidOperationException("此扫描已交由合并结果继续处理："+merged);
         string id="";
         db.Transaction((c,tx)=>{
             using var cmd=c.CreateCommand();cmd.Transaction=tx;
@@ -95,6 +96,7 @@ public sealed class Documents(AppSettings settings, Database db)
         try
         {
             var doc=db.Doc(id)??throw new KeyNotFoundException("文档不存在");
+            if(ActiveMergeForSource(id) is { } merged)throw new InvalidOperationException("此扫描已交由合并结果归档，请操作合并文档："+merged);
             if(doc.S("status") is "deleted" or "superseded")throw new InvalidOperationException("此文档已删除或已由拆分文件替代，请操作独立文档。");
             if(doc.I("locked")==1 && !locked) throw new InvalidOperationException("此文件的分类已由用户锁定。");
             if(doc.S("status") is "analyzing" or "indexing")throw new InvalidOperationException("请等待内容分析完成后再调整归档。");
@@ -125,7 +127,7 @@ public sealed class Documents(AppSettings settings, Database db)
     }
     public void RecoverMoves()
     {
-        foreach(var op in db.Rows("SELECT * FROM operations WHERE state IN ('prepared','undoing')"))
+        foreach(var op in db.Rows("SELECT * FROM operations WHERE kind='move' AND state IN ('prepared','undoing')"))
         {
             bool undo=op.S("state")=="undoing";string target=op.S(undo?"old_path":"new_path"); string source=op.S(undo?"new_path":"old_path");
             if(File.Exists(target)&&!File.Exists(source))ApplyMove(op.S("id"),op.S("doc_id"),target,JsonNode.Parse(op.S(undo?"before_json":"after_json"))!.AsObject(),undo?"undone":"applied");
@@ -137,6 +139,7 @@ public sealed class Documents(AppSettings settings, Database db)
     {
         await Mutation.WaitAsync(ct);try{
             var op=db.Rows("SELECT * FROM operations WHERE id=$i AND state='applied'",("$i",id)).FirstOrDefault()??throw new ArgumentException("该操作不能撤销。");
+            if(op.S("kind")=="merge"){UndoMergeCore(op);return;}
             var doc=db.Doc(op.S("doc_id"))!;
             if(doc.S("path")!=op.S("new_path"))throw new ArgumentException("请先撤销此文件后续的移动。");
             SafePath(Path.GetRelativePath(Root,op.S("old_path")));Directory.CreateDirectory(Path.GetDirectoryName(op.S("old_path"))!);
@@ -164,6 +167,7 @@ public sealed class Documents(AppSettings settings, Database db)
             if(db.Rows("SELECT id FROM jobs WHERE payload=$i AND status='running'",("$i",id)).Count>0)throw new InvalidOperationException("此文件正在处理，请等待当前任务完成后再删除。");
             db.Exec("INSERT OR REPLACE INTO trash VALUES($i,$s,$t); UPDATE documents SET status='deleted' WHERE id=$i; UPDATE jobs SET status='cancelled' WHERE payload=$i AND status='pending'",("$i",id),("$s",doc.S("status")),("$t",Database.Now));
             WriteMetadata(id);db.Log("trash","已移入应用回收站："+doc.S("title"));
+            ReconcileReplacementsCore(ct);
         }
         finally{Mutation.Release();}
     }
@@ -173,8 +177,10 @@ public sealed class Documents(AppSettings settings, Database db)
         try
         {
             var item=db.Rows("SELECT * FROM trash WHERE doc_id=$i",("$i",id)).FirstOrDefault()??throw new ArgumentException("文件不在回收站。");
-            db.Exec("UPDATE documents SET status=$s WHERE id=$i; DELETE FROM trash WHERE doc_id=$i; UPDATE jobs SET status='pending' WHERE payload=$i AND status='cancelled'",("$i",id),("$s",item.S("previous_status")));
+            ValidateMergeRestore(id);
+            db.Exec("UPDATE documents SET status=$s WHERE id=$i; DELETE FROM trash WHERE doc_id=$i; UPDATE jobs SET status='pending' WHERE payload=$i AND status='cancelled'; UPDATE operations SET state='applied' WHERE doc_id=$i AND kind='merge' AND state='undone'",("$i",id),("$s",item.S("previous_status")));
             WriteMetadata(id);db.Log("restore","已从回收站恢复文档。");
+            ReconcileReplacementsCore(ct);
         }
         finally{Mutation.Release();}
     }
@@ -189,7 +195,8 @@ public sealed class Documents(AppSettings settings, Database db)
         foreach(var page in pages) { page["analysis"]=JsonNode.Parse(page.S("summary"));page.Remove("summary"); }
         var data=new JsonObject{["schema_version"]=1,["document"]=doc,["pages"]=new JsonArray(pages.Select(x=>(JsonNode)x).ToArray()),["analysis_history"]=new JsonArray(db.Rows("SELECT page,model,analyzed_at FROM analyses WHERE doc_id=$i ORDER BY page",("$i",id)).Select(x=>(JsonNode)x).ToArray()),["updated_at"]=Database.Now};
         data["summary_revisions"]=new JsonArray(db.Rows("SELECT before_summary,after_summary,model,created FROM summary_revisions WHERE doc_id=$i ORDER BY created",("$i",id)).Select(x=>(JsonNode)x).ToArray());
-        data["scans"]=new JsonArray(db.Rows("SELECT scan_id,scanned,device,source FROM scan_submissions WHERE doc_id=$i ORDER BY scanned",("$i",id)).Select(x=>(JsonNode)x).ToArray());
+        data["document_sources"]=SourcePages(id);
+        data["scans"]=SourceCaptures(id);
         string directory=Path.Combine(Root,".scanarchive-metadata");Directory.CreateDirectory(directory);
         if(File.GetAttributes(directory).HasFlag(FileAttributes.ReparsePoint))throw new IOException("元数据目录不能是链接。");
         string file=Path.Combine(directory,id+".json");File.WriteAllText(file+".tmp",data.ToJsonString(AppSettings.Json));File.Move(file+".tmp",file,true);
@@ -236,42 +243,13 @@ public sealed class Documents(AppSettings settings, Database db)
     public async Task ReconcileSplitBatches(CancellationToken ct=default)
     {
         await Mutation.WaitAsync(ct);
-        try
-        {
-            foreach(var parent in db.Rows("SELECT * FROM documents WHERE status IN ('ready','superseded') AND EXISTS (SELECT 1 FROM documents child WHERE child.parent_id=documents.id) ORDER BY created DESC"))
-            {
-                ct.ThrowIfCancellationRequested();
-                string id=parent.S("id");bool hidden=parent.S("status")=="superseded";
-                // A source batch stays visible until its own organization has finished.
-                if(!hidden&&db.Rows("SELECT id FROM jobs WHERE payload=$i AND status IN ('pending','running')",("$i",id)).Count>0)continue;
-                var children=db.Rows("SELECT * FROM documents WHERE parent_id=$i AND status<>'deleted'",("$i",id));
-                int count=parent.I("page_count");var covered=new HashSet<int>();
-                bool complete=children.Count>=2&&count>0&&File.Exists(parent.S("original"));
-                foreach(var child in children)
-                {
-                    if(!complete)break;
-                    if(child.S("status") is not ("ready" or "superseded")||!File.Exists(child.S("original"))||!File.Exists(child.S("path"))){complete=false;break;}
-                    try
-                    {
-                        var pages=ParsePages(child.S("source_pages"),count);
-                        // Validate physical outputs before hiding a batch, not just AI assertions.
-                        if(pages.Length!=child.I("page_count")||(!hidden&&PageCount(child)!=pages.Length)){complete=false;break;}
-                        foreach(int page in pages)if(!covered.Add(page)){complete=false;break;}
-                    }
-                    catch(Exception ex)when(ex is ArgumentException or IOException or InvalidDataException){complete=false;}
-                }
-                complete&=covered.Count==count;
-                if(complete==hidden)continue;
-                db.Exec("UPDATE documents SET status=$s WHERE id=$i",("$s",complete?"superseded":"ready"),("$i",id));
-                WriteMetadata(id);
-                db.Log("split",complete?$"已验证 {count} 页完整拆分，原始合集已从文档库隐藏：{parent.S("title")}":$"拆分文件不再完整可用，已恢复原始合集以免遗漏：{parent.S("title")}");
-            }
-        }
-        finally{Mutation.Release();}
+        try { ReconcileReplacementsCore(ct); }
+        finally { Mutation.Release(); }
     }
     public async Task<string> ExtractPages(string id,string selection,string title,CancellationToken ct)
     {
         var doc=db.Doc(id)??throw new KeyNotFoundException();
+        if(ActiveMergeForSource(id) is { } merged)throw new InvalidOperationException("此扫描已交由合并结果继续处理，请操作合并文档："+merged);
         if(doc.S("status") is "deleted" or "superseded")throw new InvalidOperationException("此文档已删除或已由拆分文件替代，请操作独立文档。");
         if(!doc.S("original").EndsWith(".pdf",StringComparison.OrdinalIgnoreCase))throw new ArgumentException("只有 PDF 可拆分页。");
         using var source=PdfReader.Open(doc.S("original"),PdfDocumentOpenMode.Import);

@@ -76,7 +76,7 @@ public sealed partial class MainWindow
             list.SelectedIndexChanged+=(_,_)=>UpdateActivitySelection(list);list.DoubleClick+=(_,_)=>{if(list.SelectedItems.Count>0){using var dialog=new Form{Text="完整记录",StartPosition=FormStartPosition.CenterParent,Size=new Size(800,520),MinimumSize=new Size(520,340),Font=Font};dialog.Controls.Add(new TextBox{Text=ActivityRecordText(list,(JsonNode)list.SelectedItems[0].Tag!),Dock=DockStyle.Fill,Multiline=true,ReadOnly=true,ScrollBars=ScrollBars.Vertical,BackColor=Color.White,BorderStyle=BorderStyle.None});dialog.ShowDialog(this);}};
         }
         Add("jobs","任务队列",jobsList,["任务","状态","文档 / 内容","更新时间"],"选择任务可查看完整状态与错误原因。","重试此任务","retry_job");
-        Add("moves","归档变更",movesList,["时间","状态","归档位置","说明"],"选择一次已完成的归档变更，可撤销并恢复原位置。","撤销此变更","undo");
+        Add("moves","归档变更",movesList,["时间","状态","归档位置","说明"],"选择归档或合并记录，查看依据并撤销。","撤销此变更","undo");
         Add("trash","回收站",trashList,["文档","删除时间"],"删除的文档可在这里恢复到文档库。","恢复此文档","restore");
         Add("log","活动日志",logList,["时间","类型","说明"],"选择记录查看详细信息；双击可在独立窗口阅读全文。","","");
         page.Controls.Add(body);page.Controls.Add(toolbar);page.Controls.Add(navigation);page.Controls.Add(summary);body.BringToFront();activityPage=page;ShowActivityTab("jobs");
@@ -124,14 +124,17 @@ public sealed partial class MainWindow
         activityEmpty[view].Visible=view.Items.Count==0;view.Visible=view.Items.Count>0;SizeActivityColumns(view);UpdateActivitySelection(view);
     }
     static string ActivityJobTitle(JsonNode r)=>S(r,"document_title")!=""?S(r,"document_title"):S(r,"kind") switch{"chat"=>"文档秘书对话","review"=>"整个文档库",_=>"文档处理任务"};
-    static string ActivityKind(string kind)=>kind switch{"format_summary"=>"Markdown 整理","index"=>"内容分析","reanalyze"=>"重新分析","organize"=>"整理归档","chat"=>"秘书对话","review"=>"文档库检查","reindex"=>"重建搜索索引","embeddings"=>"更新语义索引","analysis"=>"页面分析","summary"=>"概括整理","embedding"=>"语义索引","preview"=>"预览","error"=>"异常","agent"=>"秘书记录","agent_tool"=>"秘书操作","split"=>"文档拆分","scan"=>"扫描","import"=>"导入","archive"=>"归档","trash"=>"回收站","restore"=>"文档恢复","undo"=>"撤销",_=>kind};
+    static string ActivityKind(string kind)=>kind switch{"format_summary"=>"Markdown 整理","index"=>"内容分析","reanalyze"=>"重新分析","organize"=>"整理归档","chat"=>"秘书对话","review"=>"文档库检查","reindex"=>"重建搜索索引","embeddings"=>"更新语义索引","analysis"=>"页面分析","summary"=>"概括整理","embedding"=>"语义索引","preview"=>"预览","error"=>"异常","agent"=>"秘书记录","agent_tool"=>"秘书操作","split"=>"文档拆分","merge"=>"跨扫描合并","reconcile"=>"来源核验","scan"=>"扫描","import"=>"导入","archive"=>"归档","trash"=>"回收站","restore"=>"文档恢复","undo"=>"撤销",_=>kind};
     static string OperationState(string state)=>state switch{"applied"=>"已完成","undone"=>"已撤销","planned" or "prepared"=>"准备中","undoing"=>"正在撤销","failed"=>"失败",_=>state};
     string ActivityRecordText(ListView view,JsonNode row){
         if(view==jobsList){
             string state=S(row,"status"),explanation=state switch{"running"=>"正在后台处理，你可以继续扫描和浏览文档。","pending"=>"任务已加入队列，会按处理能力自动开始。","done"=>"处理已完成。","failed"=>"任务未完成。查看以下原因后，可重试此任务。","cancelled"=>"任务已取消。",_=>""};
             return $"{ActivityKind(S(row,"kind"))} · {PipelineStatus(state)}\r\n{ActivityJobTitle(row)}\r\n更新时间：{LocalTime(S(row,"updated"))}\r\n\r\n{explanation}"+(S(row,"error")==""?"":"\r\n\r\n原因："+S(row,"error"));
         }
-        if(view==movesList)return $"{OperationState(S(row,"state"))} · {LocalTime(S(row,"created"))}\r\n原位置：{S(row,"old_path")}\r\n新位置：{S(row,"new_path")}\r\n\r\n{S(row,"reason")}";
+        if(view==movesList){
+            if(S(row,"kind")=="merge")return $"跨扫描合并 · {OperationState(S(row,"state"))} · {LocalTime(S(row,"created"))}\r\n生成文件：{S(row,"new_path")}\r\n\r\n合并依据：{S(row,"reason")}\r\n\r\n撤销后，合并结果移入应用回收站，原始来源重新显示；扫描原件始终保留。";
+            return $"{OperationState(S(row,"state"))} · {LocalTime(S(row,"created"))}\r\n原位置：{S(row,"old_path")}\r\n新位置：{S(row,"new_path")}\r\n\r\n{S(row,"reason")}";
+        }
         if(view==trashList)return $"{S(row,"title")}\r\n删除时间：{LocalTime(S(row,"deleted_at"))}\r\n\r\n恢复后会重新显示在桌面和网页的文档库中。";
         return $"{ActivityKind(S(row,"kind"))} · {LocalTime(S(row,"time"))}\r\n\r\n{S(row,"message")}";
     }
@@ -151,7 +154,7 @@ public sealed partial class MainWindow
         if(view.SelectedItems.Count==0){status.Text="请先选择一条记录。";return;}var row=(JsonNode)view.SelectedItems[0].Tag!;
         if(command=="retry_job"&&S(row,"status")!="failed")throw new InvalidOperationException("只能重试失败任务；排队中的任务会自动执行。");
         if(command=="undo"&&S(row,"state")!="applied")throw new InvalidOperationException("只能撤销尚未撤销的归档操作。");
-        await SecretaryIntegration.Command(command,new(){["id"]=S(row,"id")});status.Text=command switch{"retry_job"=>"任务已重新加入队列。","restore"=>"文档已恢复，桌面与网页同步更新。",_=>"归档变更已撤销，文件已恢复原位置。"};await RefreshActivity();
+        await SecretaryIntegration.Command(command,new(){["id"]=S(row,"id")});status.Text=command switch{"retry_job"=>"任务已重新加入队列。","restore"=>"文档已恢复，桌面与网页同步更新。",_=>S(row,"kind")=="merge"?"合并已撤销，原始来源已恢复。":"归档变更已撤销，文件已恢复原位置。"};await RefreshActivity();
     }
     // Synthetic data only; invoked by --ui-smoke without the live core or API.
     void LoadActivityDemo(){

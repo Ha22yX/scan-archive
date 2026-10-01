@@ -28,6 +28,7 @@ public sealed class DesktopCommands(AppSettings settings, Database db, Documents
             case "search": return await search.Find(r.S("q"), r.S("category"), r.S("from"), r.S("to"), 40, ct);
             case "document":
                 return new() { ["document"] = db.Doc(id) ?? throw new KeyNotFoundException("文档不存在。"),
+                    ["sources"] = docs.SourcePages(id),
                     ["pages"] = Rows(db.Rows("SELECT number,text,summary FROM pages WHERE doc_id=$i ORDER BY number", ("$i",id))),
                     ["children"] = Rows(db.Rows("SELECT id,title,source_pages FROM documents WHERE parent_id=$i AND status NOT IN ('deleted','superseded')", ("$i",id))) };
             case "restore": await docs.Restore(id,ct); return new() { ["ok"] = true };

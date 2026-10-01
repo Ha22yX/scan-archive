@@ -118,6 +118,6 @@ public sealed partial class MainWindow : Form
     static string S(JsonNode? n,string key)=>n?[key]?.ToString()??"";
     static int N(JsonNode? n,string key)=>int.TryParse(S(n,key),out int v)?v:0;
     static string LocalTime(string raw)=>DateTimeOffset.TryParse(raw,out var t)?t.LocalDateTime.ToString("yyyy-MM-dd HH:mm:ss"):raw;
-    static string PipelineStatus(string value)=>value switch{"queued"=>"等待分析","analyzing"=>"逐页分析","indexing"=>"建立索引","analyzed"=>"等待整理","ready"=>"已归档","error"=>"需要重试","pending"=>"排队中","running"=>"处理中","done"=>"完成","failed"=>"失败","deleted"=>"已删除","superseded"=>"已拆分 · 原始扫描","cancelled"=>"已取消",_=>value};
+    static string PipelineStatus(string value)=>value switch{"queued"=>"等待分析","analyzing"=>"逐页分析","indexing"=>"建立索引","analyzed"=>"等待整理","ready"=>"已归档","error"=>"需要重试","pending"=>"排队中","running"=>"处理中","done"=>"完成","failed"=>"失败","deleted"=>"已删除","superseded"=>"已整合 · 保留原件","cancelled"=>"已取消",_=>value};
     static void Open(string path){if(!File.Exists(path)&&!Directory.Exists(path))throw new IOException("文件或目录不存在。");Process.Start(new ProcessStartInfo(path){UseShellExecute=true});}
 }

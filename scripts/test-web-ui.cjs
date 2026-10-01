@@ -29,8 +29,10 @@ let chatDelayMs=0, postedChat=[], requestLog=[], unhandled=[], outside=[], error
 const conversationMessages={'conversation-demo':messages,'conversation-other':[{role:'user',text:'另一段合成对话',created:now},{role:'assistant',text:'这是会话 B，用于验证发送期间切换不会被打断。',created:now}]};
 const stats=()=>({configured:true,settings:options,overview:{counts:[{status:'ready',count:12},{status:'analyzing',count:1},{status:'error',count:1}],categories:[{category:'生活/保修',count:7},{category:'学习/物理',count:7}]},pending:[{kind:'index',status:'running',count:1}],usage:[],lastWake:now,addresses:['http://localhost:5278','http://192.168.1.20:5278']});
 const record={document:documents[0],pages:[1,2,3].map(number=>({number,text:`合成资料，第 ${number} 页`,summary:JSON.stringify({summary:fixtureText,topics:['设备保修','售后服务'],entities:['合成机构'],dates_and_numbers:['24个月'],readability:'清晰'})})),children:[]};
+record.sources=[{merged_page:1,source_doc_id:parentId,source_page:2,scanned:now,title:'正面扫描（合成）'},{merged_page:2,source_doc_id:documents[1].id,source_page:1,scanned:'2026-09-30T10:27:00-04:00',title:'反面扫描（合成）'}];
 const activity={counts:{running:1,pending:2,failed:1},jobs:[{id:'j1',kind:'index',status:'running',document_title:documents[3].title,updated:now},{id:'j2',kind:'organize',status:'pending',document_title:documents[1].title,updated:now},{id:'j3',kind:'index',status:'failed',document_title:documents[4].title,updated:now,error:'演示：网络连接暂时中断。已完成的页面保留，可继续分析。'}],operations:[{id:'o1',state:'applied',reason:'按文档内容归档',old_path:'C:\\Documents\\Inbox\\scan.pdf',new_path:'C:\\Documents\\生活\\保修\\设备凭证.pdf',created:now}],activity:[{kind:'analysis',message:'演示文档：已完成 2/3 页分析。',time:now}]};
 const pageSvg=page=>`<svg xmlns="http://www.w3.org/2000/svg" width="700" height="960" viewBox="0 0 700 960"><rect width="700" height="960" fill="white"/><rect x="60" y="64" width="62" height="8" fill="#246b57"/><text x="60" y="140" font-size="36" fill="#193c36">SYNTHETIC WARRANTY</text><text x="60" y="205" font-size="22" fill="#70837d">Page ${page} · UI TEST FIXTURE</text>${Array.from({length:12},(_,i)=>`<rect x="60" y="${270+i*36}" width="${i%3?530:420}" height="7" fill="#dce6df"/>`).join('')}</svg>`;
+activity.operations.push({id:'merge-demo',kind:'merge',state:'applied',reason:'合成合同编号与页码连续',old_path:'',new_path:'C:\\Documents\\Library\\combined.pdf',created:now});
 const contentType={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml','.png':'image/png'};
 const server=http.createServer((req,res)=>{
   const pathname=new URL(req.url,'http://localhost').pathname;
@@ -113,6 +115,14 @@ const server=http.createServer((req,res)=>{
      for(const item of overflowing)assert.ok(['auto','scroll'].includes(item.overflow),JSON.stringify(item));
    });
    await check('document reader does not overflow horizontally',noOverflow);await screenshot('reader-desktop');
+   await check('merged document preserves distinct scan times and opens the exact source page',async()=>{
+     await page.locator('[data-detail="manage"]').click();
+     assert.equal(await page.locator('#doc-provenance .source-record').count(),2);
+     const timestamps=await page.locator('#doc-provenance .source-record p').allTextContents();assert.notEqual(timestamps[0],timestamps[1]);
+     await page.locator('#doc-provenance .source-record button').first().click();
+     await page.waitForFunction(()=>document.querySelector('#doc-title').textContent==='原始扫描合集'&&document.querySelector('#page-number').value==='2');
+     await page.locator('#close-document').click();await page.locator('.document-card').first().click();await page.locator('#document-dialog').waitFor({state:'visible'});
+   });
    await check('invalid citation pages are inert and manual page jumps stay in bounds',async()=>{
      assert.equal(await page.locator('#doc-summary .citation').count(),1);assert.equal(await page.locator('#doc-summary .citation').innerText(),'原文 · 第 2 页');
      await page.locator('#page-number').fill('0');await page.locator('#page-number').press('Enter');assert.equal(await page.locator('#page-number').inputValue(),'1');
@@ -162,6 +172,13 @@ const server=http.createServer((req,res)=>{
      await page.locator('.document-card').first().click();await page.locator('#document-dialog').waitFor({state:'visible'});assert.equal(await page.locator('#page-number').inputValue(),'2');await page.locator('#close-document').click();
    });
    await page.locator('[data-view="activity"]').click();await check('mobile activity no horizontal overflow',noOverflow);await screenshot('activity-mobile');
+   await check('merge undo describes restoring source scans rather than moving one file',async()=>{
+     await page.locator('[data-activity="operations"]').click();
+     await page.getByRole('button',{name:'撤销这次合并',exact:true}).click();
+     assert.equal(await page.locator('#confirm-title').innerText(),'撤销跨扫描合并？');assert.ok((await page.locator('#confirm-copy').innerText()).includes('原始来源重新显示'));
+     await page.locator('#confirm-dialog').getByRole('button',{name:'取消',exact:true}).click();
+     assert.ok(!requestLog.some(x=>String(x).includes('/operations/merge-demo/undo')));
+   });
    await page.locator('[data-view="settings"]').click();await check('mobile settings no horizontal overflow',noOverflow);await screenshot('settings-mobile');
    await check('settings field values preserved from fixture',async()=>{assert.equal(await page.locator('#document-concurrency').inputValue(),'3');assert.equal(await page.locator('#page-concurrency').inputValue(),'2');assert.equal(await page.locator('#wake-time').inputValue(),'05:00');});
    await check('no JavaScript page errors',async()=>assert.deepEqual(errors,[]));await check('all API and external requests isolated',async()=>{assert.deepEqual(unhandled,[]);assert.deepEqual(outside,[]);});

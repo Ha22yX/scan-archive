@@ -74,6 +74,14 @@ Both the desktop secretary and remote web panel render Markdown answers and keep
 
 The agent can inspect and search documents, read pages, create categories, move/rename files, merge categories, split PDF ranges, queue analysis, repair indexes, remember preferences and undo moves. Its tools operate within the configured library. Manual categorization locks a document against agent moves. File moves are journaled and reversible; source bytes are retained. Document contents are treated as evidence, not instructions.
 
+### Separate scans, one document
+
+The secretary checks nearby scans after content analysis, even when one scan has already been archived or finishes analysis out of order. The initial candidate window is 30 minutes in either direction; its `related_scans` tool can expand this to 24 hours, while normal search can find older material. Timing is a discovery clue, never proof that pages belong together. Printed page numbers, unique document references, front/back labels and continued text provide stronger evidence; ambiguous candidates remain separate.
+
+For a verified match, `merge_documents` creates one PDF in the requested page order, including interleaved fronts and backs. Every page of each participating document must be included exactly once. Completed page analyses are reused, and the combined document receives a new summary and search index. Original scans leave the ordinary list only after the combined output is fully archived and validated. The operation is recorded and reversible from the activity view. Desktop and web document details show each page's original scan time and offer a link back to its source page. This joins separately captured pages; it does not add hardware duplex support to a single-sided scanner.
+
+Successful merge calls include a server-generated receipt with the resulting PDF, page count and current processing state. Renaming two files or placing them in one category does not count as a merge. Existing conversations use the current tools even if an older reply said merging was unavailable.
+
 ### Storage and traceability
 
 When archived child documents cover every page of a split batch exactly once, the batch leaves the normal library, search results and document counts automatically. Incomplete or overlapping splits keep their source visible. Original scans remain available through **View original scan** on a child document for traceability; deleting a child makes the source batch visible again.

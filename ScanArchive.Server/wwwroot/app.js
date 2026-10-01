@@ -1,7 +1,7 @@
 'use strict';
 const $=id=>document.getElementById(id);
 const state={view:'library',options:null,conversation:'',document:null,page:1,offset:0,lastMessages:'',searching:false,listToken:0,docToken:0,authenticated:false,settingsDirty:false,settingsLoaded:false,context:null,sending:false,chatVersion:0,chatRequest:0,conversationsRequest:0,chatWorking:false,chatDraftKey:'new:0',newDraftCounter:0,chatDrafts:new Map()};
-const labels={queued:'等待分析',analyzing:'正在分析',indexing:'建立索引',analyzed:'等待整理',ready:'已归档',superseded:'已拆分 · 原始扫描',error:'需要处理',pending:'等待执行',running:'执行中',done:'已完成',failed:'需要处理',index:'内容分析',organize:'扫描后整理',review:'文档库巡检',chat:'秘书对话',embeddings:'语义索引',reindex:'重建索引',reanalyze:'重新分析',format_summary:'整理摘要'};
+const labels={queued:'等待分析',analyzing:'正在分析',indexing:'建立索引',analyzed:'等待整理',ready:'已归档',superseded:'已整合 · 保留原件',error:'需要处理',pending:'等待执行',running:'执行中',done:'已完成',failed:'需要处理',index:'内容分析',organize:'扫描后整理',review:'文档库巡检',chat:'秘书对话',embeddings:'语义索引',reindex:'重建索引',reanalyze:'重新分析',format_summary:'整理摘要'};
 const titles={library:['YOUR DOCUMENTS','文档库','每一份原件与线索，都在这里。'],agent:['YOUR PERSONAL SECRETARY','文档秘书','用一句话找到资料，或让秘书帮你整理。'],activity:['EVERY CHANGE, RECORDED','处理记录','处理进度、文件调整与原件，一切可追溯。'],settings:['MAKE IT YOURS','设置','让文档工作台按你的习惯运行。']};
 const el=(tag,text='',cls='')=>{const n=document.createElement(tag);n.textContent=String(text??'');n.className=cls;return n;};
 const date=value=>{if(!value)return '—';const d=new Date(value);return Number.isNaN(d.getTime())?String(value):d.toLocaleString('zh-CN',{hour12:false});};
@@ -108,6 +108,10 @@ async function openDoc(id,page=1){
  $('doc-meta').replaceChildren(badge(d.status),el('span','扫描于 '+date(d.scanned)),el('span',d.locked?'分类已锁定':'秘书自动管理'));if(d.error)$('doc-meta').append(el('p',d.error,'error'));
  const provenance=$('doc-provenance');provenance.replaceChildren(el('h3','文档来源'),el('p','原始扫描时间：'+date(d.scanned)),el('p','文档所载日期：'+(d.document_date||'未识别')),el('p','固定编号：'+d.id,'fixed-id'));
  if(d.parent_id)provenance.append(el('p','从原始扫描的第 '+d.source_pages+' 页拆分。'),button('查看原始扫描',()=>openDoc(d.parent_id)));
+ const sources=(result.sources||[]).filter(s=>s.source_doc_id!==d.id);
+ if(sources.length){provenance.append(el('h3','每页扫描来源'),el('p','保留每次扫描的时间与原页码；点击可核对原始扫描。','subtle'));
+  for(const source of sources){const row=el('div','','source-record');row.append(button('本文件第 '+source.merged_page+' 页 ← '+source.title+' · 原第 '+source.source_page+' 页',()=>openDoc(source.source_doc_id,Number(source.source_page)),'child-link'),el('p','扫描于 '+date(source.scanned),'subtle'));provenance.append(row);}
+ }
  const children=(result.children||[]).filter(c=>c.status!=='deleted');if(children.length){provenance.append(el('h3','拆分后的文档'));children.forEach(c=>provenance.append(button(c.title,()=>openDoc(c.id),'child-link')));}
  $('original-file').href='/api/documents/'+id+'/file';$('metadata-file').href='/api/documents/'+id+'/metadata';$('move-title').value=d.title;$('move-category').value=d.category||'';show('unlock',!!d.locked);
  const archived=['deleted','superseded'].includes(d.status);$('doc-trash').disabled=archived;$('doc-retry').disabled=archived||['analyzing','indexing'].includes(d.status);$('doc-organize').disabled=!['ready','analyzed'].includes(d.status);[...$('move-form').elements].forEach(c=>c.disabled=archived);
@@ -118,7 +122,7 @@ function renderPage(){
  $('page-number').value=state.page;$('page-number').max=total;$('page-label').textContent='/ '+total;$('prev-page').disabled=state.page===1;$('next-page').disabled=state.page===total;
  $('page-preview').alt=d.title+'，第 '+state.page+' 页';show('page-preview',false);show('preview-state',true);$('preview-state').replaceChildren(el('span','正在载入原件…'));$('page-preview').src='/api/documents/'+d.id+'/pages/'+state.page;$('preview-scroll').scrollTop=0;
  const page=state.document.pages.find(x=>Number(x.number)===state.page);$('page-text').textContent=page?.text||'本页尚未完成文字识别。';let analysis={};try{analysis=JSON.parse(page?.summary||'{}');}catch{}
- const description=[analysis.summary,...[['主题',analysis.topics],['人物与机构',analysis.entities],['日期与数字',analysis.dates_and_numbers],['识别说明',analysis.readability]].filter(x=>x[1]).map(([t,v])=>'### '+t+'\n'+(typeof v==='string'?v:JSON.stringify(v)))].filter(Boolean).join('\n\n');
+ const description=[analysis.summary,...[['主题',analysis.topics],['人物与机构',analysis.entities],['日期与数字',analysis.dates_and_numbers],['识别说明',analysis.readability],['跨扫描衔接线索',analysis.continuity]].filter(x=>x[1]).map(([t,v])=>'### '+t+'\n'+(typeof v==='string'?v:JSON.stringify(v)))].filter(Boolean).join('\n\n');
  markdown($('page-summary'),description||'此页尚未完成内容分析。完成后会显示摘要、主题与关键线索。');
 }
 on('page-preview','load',()=>{show('page-preview',true);show('preview-state',false);});on('page-preview','error',()=>{show('page-preview',false);show('preview-state',true);$('preview-state').replaceChildren(el('p','这一页暂时无法预览。'),button('重新载入',renderPage));});
@@ -195,7 +199,12 @@ async function activity(){
  $('trash').replaceChildren(...trash.map(d=>{const box=el('div','','operation');box.append(el('strong',d.title),el('p','移除于 '+date(d.deleted_at),'subtle'),button('恢复到文档库',async()=>{await api('/documents/'+d.id+'/restore','POST',{});toast('文件已恢复。');await activity();await status();}));return box;}));if(!trash.length)$('trash').append(emptyState('回收站是空的','从文档库移除的文件，可以在这里恢复。'));
  const jobs=[...data.jobs].sort((a,b)=>({running:0,pending:1,failed:2,done:3}[a.status]??4)-({running:0,pending:1,failed:2,done:3}[b.status]??4));
  $('jobs').replaceChildren(...jobs.slice(0,40).map(j=>{const box=el('div','','job'),top=el('div','','record-heading');top.append(el('strong',labels[j.kind]||j.kind),badge(j.status));box.append(top);if(j.document_title)box.append(el('p',j.document_title,'job-document'));box.append(el('p','更新于 '+date(j.updated),'subtle'));if(j.error){const details=el('details','','record-details');details.append(el('summary',j.status==='failed'?'查看问题':'查看处理说明'),el('p',j.error,'error'));box.append(details);}if(j.status==='failed')box.append(button('重试任务',async()=>{await api('/jobs/'+j.id+'/retry','POST',{});await activity();toast('任务已重新排队。');}));return box;}));if(!jobs.length)$('jobs').append(emptyState('所有任务都已就绪','开始扫描或导入文件后，可以在这里查看处理进度。'));
- $('operations').replaceChildren(...data.operations.map(o=>{const box=el('div','','operation');box.append(el('strong',o.reason||'文档位置调整'),el('p',o.state==='undone'?'已撤销 · '+date(o.created):date(o.created),'subtle'));const details=el('details','','record-details');details.append(el('summary','查看调整前后的位置'),el('p','调整前：'+o.old_path),el('p','调整后：'+o.new_path));box.append(details);if(o.state==='applied')box.append(button('撤销这次调整',async()=>{if(!await confirmAction('撤销文件调整？','文件将恢复到本次调整前的位置。','撤销调整'))return;await api('/operations/'+o.id+'/undo','POST',{});await activity();toast('已撤销文件调整。');}));return box;}));if(!data.operations.length)$('operations').append(emptyState('还没有文件调整','秘书与手动归档产生的位置调整会记录在这里。'));
+ $('operations').replaceChildren(...data.operations.map(o=>{
+  const merged=o.kind==='merge',box=el('div','','operation');box.append(el('strong',(merged?'跨扫描合并 · ':'')+(o.reason||'文档位置调整')),el('p',o.state==='undone'?'已撤销 · '+date(o.created):date(o.created),'subtle'));
+  const details=el('details','','record-details');details.append(el('summary',merged?'查看合并结果与撤销说明':'查看调整前后的位置'));
+  if(merged)details.append(el('p','生成文件：'+o.new_path),el('p','撤销后合并结果移入回收站，原始来源重新显示。扫描原件始终保留。'));else details.append(el('p','调整前：'+o.old_path),el('p','调整后：'+o.new_path));box.append(details);
+  if(o.state==='applied')box.append(button(merged?'撤销这次合并':'撤销这次调整',async()=>{if(!await confirmAction(merged?'撤销跨扫描合并？':'撤销文件调整？',merged?'合并结果将移入应用回收站，原始来源重新显示。所有扫描原件保留。':'文件将恢复到本次调整前的位置。',merged?'撤销合并':'撤销调整'))return;await api('/operations/'+o.id+'/undo','POST',{});await activity();toast(merged?'合并已撤销，原始来源已恢复。':'已撤销文件调整。');}));return box;
+ }));if(!data.operations.length)$('operations').append(emptyState('还没有文件调整','秘书的合并、整理与手动归档会记录在这里。'));
  $('activity').replaceChildren(...data.activity.slice(0,60).map(a=>{const box=el('div','','activity-item');box.append(el('time',date(a.time)),el('p',a.message));return box;}));if(!data.activity.length)$('activity').append(el('p','文档库的最新动态会显示在这里。','subtle'));
 }
 on('wake-now','click',()=>busy($('wake-now'),async()=>{await api('/maintenance','POST',{});toast('秘书已加入整理队列。');await activity();await status();},'正在提交…'));

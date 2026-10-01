@@ -31,6 +31,12 @@ public sealed partial class MainWindow
             if(form.files.Width<120||form.preview.Width<200||form.messageBox.Width<150||form.scan.Width<140)throw new Exception("Workspace controls are clipped.");
             using var image=new Bitmap(form.Width,form.Height);form.DrawToBitmap(image,new Rectangle(Point.Empty,form.Size));image.Save(Path.Combine(folder,$"desktop-{size.Width}.png"));
         }
+        form.selectedSources=new JsonArray(
+            new JsonObject{["merged_page"]=1,["source_doc_id"]="front-demo",["source_page"]=1,["title"]="合成正面扫描",["scanned"]="2026-09-29T15:24:00-04:00"},
+            new JsonObject{["merged_page"]=2,["source_doc_id"]="back-demo",["source_page"]=3,["title"]="合成反面扫描",["scanned"]="2026-09-29T15:27:00-04:00"});
+        form.detailMode.SelectedIndex=2;Application.DoEvents();
+        if(!form.summary.Text.Contains("合成正面扫描")||!form.summary.Text.Contains("合成反面扫描")||!form.summary.Text.Contains("原第 3 页")||!form.summary.Text.Contains(LocalTime("2026-09-29T15:27:00-04:00")))throw new Exception("Cross-scan provenance omitted a source page or timestamp.");
+        Capture("desktop-scan-provenance.png");form.selectedSources=new();form.detailMode.SelectedIndex=0;
         form.Size=new Size(1500,920);form.inspector.SelectedIndex=1;
         string reply="### 找到了设备凭证\n\n保修期为 **24 个月**。\n\n| 项目 | 内容 |\n| --- | --- |\n| 购买日期 | 2026-09-29 |\n| 预计到期 | 2028-09-29 |\n\n申请售后请准备：\n\n1. 购买凭证\n2. 设备序列号\n\n[[aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:1]]";
         var messages=new JsonArray(new JsonObject{["role"]="user",["text"]="设备凭证什么时候过保？"},new JsonObject{["role"]="assistant",["text"]=reply});
